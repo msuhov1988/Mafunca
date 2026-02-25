@@ -165,11 +165,3 @@ def async_curry(fn: Callable[[A], Awaitable[R]]) -> AsyncCurry[R]:
     _panic_on_bad_function(func=fn)
     _panic_on_sync(func=fn)
     return AsyncCurry(fn)
-
-
-@curry
-def test(a: int, b: int = 0, c: int = 0) -> int:
-    return a + b + c
-
-
-print(test(1)(10)())
