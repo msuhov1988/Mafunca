@@ -96,15 +96,13 @@ class Curry(Generic[R], _Base):
     def __call__(self, *args: A.args, **kwargs: A.kwargs) -> Union['Curry[R]', R]:
         try:
             bound_args = _apply(self._sig, *args, **kwargs)
-            pos = [*self._pos, *bound_args.args]
-            named = {**self._named, **bound_args.kwargs}
             new_params = [par for name, par in self._sig.parameters.items() if name not in bound_args.arguments]
             if len(new_params) == 0:
-                return self._func(*pos, **named)
+                return self._func(*self._pos, *bound_args.args, **self._named, **bound_args.kwargs)
 
             sig = inspect.Signature(parameters=new_params)
             new_curry = Curry(self._func)
-            new_curry._update_state(sig, pos, named)
+            new_curry._update_state(sig, [*self._pos, *bound_args.args], {**self._named, **bound_args.kwargs})
             return new_curry
         except TypeError as err:
             raise CurryBadArguments(func_name=_extract_func_name(self._func), err=err.args[0]) from None
@@ -124,15 +122,13 @@ class AsyncCurry(Generic[R], _Base):
     async def __call__(self, *args: A.args, **kwargs: A.kwargs) -> Union['AsyncCurry[R]', R]:
         try:
             bound_args = _apply(self._sig, *args, **kwargs)
-            pos = [*self._pos, *bound_args.args]
-            named = {**self._named, **bound_args.kwargs}
             new_params = [par for name, par in self._sig.parameters.items() if name not in bound_args.arguments]
             if len(new_params) == 0:
-                return await self._func(*pos, **named)
+                return await self._func(*self._pos, *bound_args.args, **self._named, **bound_args.kwargs)
 
             sig = inspect.Signature(parameters=new_params)
             new_curry = AsyncCurry(self._func)
-            new_curry._update_state(sig, pos, named)
+            new_curry._update_state(sig, [*self._pos, *bound_args.args], {**self._named, **bound_args.kwargs})
             return new_curry
         except TypeError as err:
             raise CurryBadArguments(func_name=_extract_func_name(self._func), err=err.args[0]) from None
