@@ -4,7 +4,7 @@ from collections.abc import Callable
 import inspect
 from functools import wraps
 
-from exceptions import ImpureMarkError, MonadError
+from mafunca.exceptions import ImpureMarkError, MonadError
 
 
 __all__ = [
@@ -473,7 +473,7 @@ class TUtils:
                     raise err
                 return Left(err)
 
-        return from_try_inner
+        return wraps(fn)(from_try_inner)
 
     @staticmethod
     def lift(curried, *wrapped_args: Triple):

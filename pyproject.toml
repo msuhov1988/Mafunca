@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mafunca"
+version = "0.0.1"
+description = "Some useful things from the world of functional programming for python."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Maxim Sukhov", email = "msuhov1988@gmail.com" }
+]
+keywords = [
+    "monads", "functional-programming", "curry", "currying",
+]
+
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/msuhov1988/Mafunca"
+Repository = "https://github.com/msuhov1988/Mafunca"
+Issues = "https://github.com/msuhov1988/Mafunca/issues"

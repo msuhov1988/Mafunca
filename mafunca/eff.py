@@ -3,8 +3,8 @@ from collections.abc import Callable, Awaitable
 import inspect
 import asyncio
 
-from triple import Left, Nothing, TUtils
-from exceptions import MonadError
+from mafunca.triple import Left, Nothing, TUtils
+from mafunca.exceptions import MonadError
 
 
 __all__ = ['Eff']

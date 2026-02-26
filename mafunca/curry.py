@@ -2,7 +2,7 @@ import inspect
 from collections.abc import Callable, Awaitable
 from typing import TypeVar, ParamSpec, Generic, Union, List, Dict
 
-from exceptions import CurryBadFunctionError, CurryBadArguments
+from mafunca.exceptions import CurryBadFunctionError, CurryBadArguments
 
 
 __all__ = ['curry', 'async_curry']

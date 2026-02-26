@@ -2,8 +2,8 @@ from typing import TypeVar, Generic, overload
 from collections.abc import Callable
 import inspect
 
-from triple import Left, Nothing, TUtils
-from exceptions import MonadError
+from mafunca.triple import Left, Nothing, TUtils
+from mafunca.exceptions import MonadError
 
 
 __all__ = ['EffSync']
