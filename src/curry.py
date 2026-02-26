@@ -107,7 +107,7 @@ class Curry(Generic[R], _Base):
         except TypeError as err:
             raise CurryBadArguments(func_name=_extract_func_name(self._func), err=err.args[0]) from None
 
-    def run_for_endless(self) -> R:
+    def run_for_var(self) -> R:
         """
            Runs a function whose signature contains variable arguments without waiting for them to be passed.
            IMPORTANT: make sure that only variable arguments are left unset.
@@ -133,7 +133,7 @@ class AsyncCurry(Generic[R], _Base):
         except TypeError as err:
             raise CurryBadArguments(func_name=_extract_func_name(self._func), err=err.args[0]) from None
 
-    async def run_for_endless(self) -> R:
+    async def run_for_var(self) -> R:
         """
            Runs a function whose signature contains variable arguments without waiting for them to be passed.
            IMPORTANT: make sure that only variable arguments are left unset.
@@ -143,21 +143,25 @@ class AsyncCurry(Generic[R], _Base):
 
 def curry(fn: Callable[[A], R]) -> Curry[R]:
     """
-       Decorator class that turns a SYNC ONLY function into a curried version.
+       Decorator that turns a SYNC ONLY function into a curried version.
        :raises CurryBadFunctionError: passed function is not suitable
        :raises CurryBadArguments: error at the level of the arguments being passed
     """
     _panic_on_bad_function(func=fn)
     _panic_on_coroutine(func=fn)
-    return Curry(fn)
+    curried = Curry(fn)
+    curried.__doc__ = fn.__doc__
+    return curried
 
 
 def async_curry(fn: Callable[[A], Awaitable[R]]) -> AsyncCurry[R]:
     """
-       Decorator class that turns an ASYNC function into a curried version.
+       Decorator that turns an ASYNC function into a curried version.
        :raises CurryBadFunctionError: passed function is not suitable
        :raises CurryBadArguments: error at the level of the arguments being passed
     """
     _panic_on_bad_function(func=fn)
     _panic_on_sync(func=fn)
-    return AsyncCurry(fn)
+    curried = AsyncCurry(fn)
+    curried.__doc__ = fn.__doc__
+    return curried

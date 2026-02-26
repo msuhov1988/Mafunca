@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import TypeVar, Generic, Union, overload
+from typing import TypeVar, ParamSpec, Generic, Union, overload
 from collections.abc import Callable
 import inspect
 from functools import wraps
@@ -22,7 +22,7 @@ _IMPURE_PROP = 'mafunca_impure'
 
 def impure(fn: Callable):
     """
-       Decorator - marks a function as impure(by adding a special dander attribute)
+       Decorator - marks a function as impure(by adding a special attribute)
        to prevent its execution in a triple monad.
        :raises ImpureMarkError: can't mark it for any reason.
     """
@@ -439,31 +439,34 @@ class Nothing(Triple):
         return f"Nothing()"
 
 
-class TUtils:
-    """Several useful auxiliary functions - classmethods"""
+Params = ParamSpec('Params')
 
-    @classmethod
-    def unit(cls, value: R) -> Right[R]:
+
+class TUtils:
+    """Several useful auxiliary functions - static methods"""
+
+    @staticmethod
+    def unit(value: R) -> Right[R]:
         """Wraps a non-Triple value in a Right container"""
         return Right(value)
 
-    @classmethod
-    def from_nullable(cls, value: R, predicate: Callable[[R], bool] = lambda v: bool(v)) -> Union[Right[R], Nothing]:
+    @staticmethod
+    def from_nullable(value: R, predicate: Callable[[R], bool] = lambda v: bool(v)) -> Union[Right[R], Nothing]:
         """Wraps a non-Triple value in a Right container if the predicate returns true, otherwise - Nothing"""
         return Right(value) if predicate(value) else Nothing()
 
-    @classmethod
-    def from_try(cls, fn: Callable[[R], V]) -> Callable[[R], Union[Right[V], Left[Exception]]]:
+    @staticmethod
+    def from_try(fn: Callable[Params, V]) -> Callable[Params, Union[Right[V], Left[Exception]]]:
         """
            Performs a sync function, catching possible errors - heirs of 'Exception'.
            MonadError is not suppressed.
            :raises MonadError: violation of the synchronicity of the function.
         """
-        _panic_on_bad_function(fn, monad='triple(module)', method='from_try')
+        _panic_on_bad_function(fn, monad=TUtils.__name__, method='from_try')
 
-        def from_try_inner(value: R) -> Union[Right[V], Left[Exception]]:
+        def from_try_inner(*args: Params.args, **kwargs: Params.kwargs) -> Union[Right[V], Left[Exception]]:
             try:
-                result: V = fn(value)
+                result: V = fn(*args, **kwargs)
                 return Right(result)
             except Exception as err:
                 if isinstance(err, (MonadError, KeyboardInterrupt)):
@@ -472,30 +475,30 @@ class TUtils:
 
         return from_try_inner
 
-    @classmethod
-    def lift(cls, curried, *wrapped_args: Triple):
+    @staticmethod
+    def lift(curried, *wrapped_args: Triple):
         """Applies Triple-wrapped positional arguments to a curried function(not wrapped) through 'ap' method"""
         result = Right(curried)
         for arg in wrapped_args:
             result = result.ap(arg)
         return result
 
-    @classmethod
-    def is_bad(cls, value) -> bool:
+    @staticmethod
+    def is_bad(value) -> bool:
         """Check for bad Triple entity"""
         return isinstance(value, Triple) and not value.is_right
 
-    @classmethod
-    def closer(cls, func: Callable) -> Callable:
+    @staticmethod
+    def closer(func: Callable[..., R]) -> Callable[..., Union[Left, Nothing, R]]:
         """Sync decorator - if one of the arguments is a "bad" Triple entity, it immediately returns it.
            Otherwise, it calls the function with the passed arguments, automatically unwraps "good" Triple entities.
         """
-        def closer_wrapper(*args, **kwargs):
+        def closer_wrapper(*args, **kwargs) -> Union[Left, Nothing, R]:
             for arg in args:
-                if cls.is_bad(arg):
+                if TUtils.is_bad(arg):
                     return arg
             for arg in kwargs.values():
-                if cls.is_bad(arg):
+                if TUtils.is_bad(arg):
                     return arg
             unwrapped_pos = [getattr(arg, 'value') if isinstance(arg, Triple) else arg for arg in args]
             unwrapped_named = {nm: getattr(v, 'value') if isinstance(v, Triple) else v for nm, v in kwargs.items()}
