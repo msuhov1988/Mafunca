@@ -272,7 +272,7 @@ This way, we separate the description of effects from their execution.
 Two monads are implemented here:
 - **Eff**   - for asynchronous effects, but it can also work with synchronous functions
 - **EffSync**    - strictly for synchronous effects 
-- 
+
 **FEATURE**: Effects work with "bad" instances of the 'Triple' monad using the short-circuit principle (see examples below)
 
 ```python
