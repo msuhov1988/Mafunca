@@ -6,7 +6,7 @@ from mafunca.common.exceptions import CurryBadArguments
 import mafunca.common.panics as panics
 
 
-__all__ = ['curry', 'async_curry', 'Curry']
+__all__ = ['curry', 'async_curry', 'Curry', 'AsyncCurry']
 
 
 def _in_place_endpoints_filter(sig: inspect.Signature, bound_args: inspect.BoundArguments) -> inspect.BoundArguments:
@@ -137,3 +137,11 @@ def async_curry(fn: Callable[[A], Awaitable[R]]) -> AsyncCurry[R]:
     curried = AsyncCurry(fn)
     curried.__doc__ = fn.__doc__
     return curried
+
+
+@curry
+def test(a, b):
+    return a + b
+
+print(test)
+print(test.origin)

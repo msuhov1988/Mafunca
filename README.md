@@ -19,6 +19,9 @@
 - [Description of currying](#description-of-currying)
 - [Currying examples](#currying-examples)
 
+### [Exceptions](#exceptions)
+- [Description of exceptions](#description-of-exceptions)
+
 ## Simple monads on value
 ### Description
 These are well-known monads such as **Maybe**, **Either** or **Optional**, **Result**.  
@@ -324,5 +327,120 @@ asyncio.run(async_eff.run())  # the word will be printed despite the uncaught ex
 
 ## Currying
 ### Description of currying
+Examples of currying and the benefits that this approach can provide are given in the section on simple monads - an applicative example.  
+This library implements powerful and flexible curry decorators.
+#### FEATURES:
+- Preserving the signature requirements of the original function (only positional or only named arguments, for example)
+- Fail fast. The incorrectness of the passed arguments is evaluated not at the final call of the original function, but at each step(without calling the original function).
+- Flexible support for default values.
+- Support for variable arguments of the form *args , **kwargs.
+- The ability to use positional and/or named arguments in any quantity or combination.
+- Support currying for sync and async functions(different currying decorators).
 
 ### Currying examples
+#### Preserving the signature requirements:
+```python
+from mafunca.curry import curry
+
+@curry
+def for_curry(a, *, b):
+    return a + b
+
+# second arg is only named
+for_curry(1)(2)    # CurryBadArguments: for_curry - too many positional arguments
+for_curry(1)(b=2)  # ok, 3
+```
+#### Fail fast:
+```python
+from mafunca.curry import curry
+
+@curry
+def for_curry(a, b):
+    return a + b
+
+for_curry(c=1)  # CurryBadArguments: for_curry - got an unexpected keyword argument 'c'
+
+```
+#### Default values and combinations of positional and named arguments:
+```python
+from mafunca.curry import curry
+@curry
+def for_curry(a: int, b: int, c: int = 0, d: int = 0) -> list[int]:
+    return [a, b, c, d]
+
+for_curry(1)(2)(3)(4)          # [1, 2, 3, 4]
+for_curry(a=1)(b=2)(c=3, d=4)  # [1, 2, 3, 4]
+
+# applying all default values
+for_curry(1)(2)()      # [1, 2, 0, 0]
+for_curry()(b=2, a=1)  # [1, 2, 0, 0]
+
+# applying default values does not override previously set values(which have defaults)
+for_curry(1, 2)(c=3)() # [1, 2, 3, 0]
+for_curry(1, 2)(d=3)() # [1, 2, 0, 3]
+```
+#### Working with *args, **kwargs:
+```python
+from mafunca.curry import curry
+
+@curry
+def for_curry(a: int, b: int, *args, **kwargs) -> list:
+    return [a, b, args, kwargs]
+
+res = for_curry(1, b=2)
+callable(for_curry)   # True - expects at least one positional and one named argument
+res = res(0, 0)       # passing two positional arguments to *args
+callable(for_curry)   # True - still waiting for at least one named argument
+
+# passing one named arg and launch original function
+res(another=10)       # [1, 2, (0, 0), {'another': 10}]
+
+res2 = for_curry(a=1)(b=2)
+# a special method that allows you to run a function
+# without passing anything for *args and **kwargs
+res2.run_for_var()    # [1, 2, (), {}]
+```
+#### Async currying:
+```python
+import asyncio
+from mafunca.curry import async_curry
+
+@async_curry
+async def for_curry(a: int, b: int, c: int = 0, d: int = 0) -> list[int]:
+    await asyncio.sleep(0)
+    return [a, b, c, d]
+
+# the __call__ method of the internal object that does all the work is asynchronous
+# therefore, we can't write like this: await for_curry(1)(2)(3)(4)
+# we have to make intermediate assignments
+async def main():
+    res1 = await for_curry(1)
+    res2 = await res1(2)
+    res3 = await res2(3)
+    res4 = await res3(4)         # [1, 2, 3, 4]
+
+    res5 = await for_curry()
+    res6 = await res5(b=2, a=1)  # [1, 2, 0, 0]
+
+asyncio.run(main())
+```
+#### Link to the original function:
+```python
+from mafunca.curry import curry
+
+@curry
+def test(a, b):
+    return a + b
+
+print(test)         # __main__.Curry(<function test at 0x000001E94746E5C0>)
+print(test.origin)  # <function test at 0x000001E94746E5C0>
+```
+
+## Exceptions
+### Description of exceptions
+- **MonadError** - thrown when monadic contracts are violated. It is not recommended to catch.  
+  It is not caught in **TUtils.from_try**, nor in methods of the **.catch** type. Separated - not in the error hierarchy of this library.
+- **BaseLibError** - base library level exception
+- **ImpureMarkError(BaseLibError)** - throws on a failed attempt to mark a function as impure
+- **CurryBadFunctionError(BaseLibError)** - thrown when the 'curried' function is not suitable
+- **CurryBadArguments(BaseLibError)** - thrown when the passed arguments for the function are incorrect
