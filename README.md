@@ -1,6 +1,6 @@
 # Some useful things from the world of functional programming for python
 
-### The goal is to provide them in the most practical form (at least from the author's perspective).
+### The goal is not to cover "everything" about functional programming, but to provide some useful things in the most practical way (at least from the author's perspective).
 ### The library is minimalistic and has no dependencies.
 
 
