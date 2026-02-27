@@ -115,8 +115,8 @@ class EffSync(Generic[A]):
         """Starts the chain"""
         return self.effect()
 
-    @classmethod
-    def of(cls, value: A) -> 'EffSync[A]':
+    @staticmethod
+    def of(value: A) -> 'EffSync[A]':
         """Wraps a non-EffSync value in the container. No inspections here."""
         return EffSync(lambda: value)
 

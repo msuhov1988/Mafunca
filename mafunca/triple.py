@@ -5,6 +5,7 @@ from functools import wraps
 
 from mafunca.common.exceptions import ImpureMarkError, MonadError
 import mafunca.common.panics as panics
+from mafunca.curry import Curry
 
 
 __all__ = [
@@ -200,7 +201,7 @@ class Right(Triple, Generic[R]):
     @overload
     def ap(self: 'Right[Callable[[V], W]]', wrapped_val: 'Right[V]') -> 'Right[W]': pass
     @overload
-    def ap(self: 'Right[Callable[[V], W]]', wrapped_val: 'Right[X]') -> _Never: pass
+    def ap(self: 'Right[Curry[W]]', wrapped_val: 'Right[V]') -> Union['Right[Curry[W]]', V]: pass
     @overload
     def ap(self: 'Right[V]', wrapped_val: 'Right[X]') -> _Never: pass
 
@@ -316,7 +317,7 @@ class Left(Triple, Generic[L]):
     @overload
     def ap(self: 'Right[Callable[[V], W]]', wrapped_val: 'Right[V]') -> 'Right[W]': pass
     @overload
-    def ap(self: 'Right[Callable[[V], W]]', wrapped_val: 'Right[X]') -> _Never: pass
+    def ap(self: 'Right[Curry[W]]', wrapped_val: 'Right[V]') -> Union['Right[Curry[W]]', V]: pass
     @overload
     def ap(self: 'Right[V]', wrapped_val: 'Right[X]') -> _Never: pass
 
@@ -418,7 +419,7 @@ class Nothing(Triple):
     @overload
     def ap(self: 'Right[Callable[[V], W]]', wrapped_val: 'Right[V]') -> 'Right[W]': pass
     @overload
-    def ap(self: 'Right[Callable[[V], W]]', wrapped_val: 'Right[X]') -> _Never: pass
+    def ap(self: 'Right[Curry[W]]', wrapped_val: 'Right[V]') -> Union['Right[Curry[W]]', V]: pass
     @overload
     def ap(self: 'Right[V]', wrapped_val: 'Right[X]') -> _Never: pass
 
@@ -441,7 +442,7 @@ class TUtils:
         return Right(value)
 
     @staticmethod
-    def from_nullable(value: R, predicate: Callable[[R], bool] = lambda v: bool(v)) -> Union[Right[R], Nothing]:
+    def from_nullable(value: R, predicate: Callable[[R], bool] = lambda v: v is not None) -> Union[Right[R], Nothing]:
         """Wraps a non-Triple value in a Right container if the predicate returns true, otherwise - Nothing"""
         return Right(value) if predicate(value) else Nothing()
 

@@ -59,13 +59,16 @@ class TestEff(unittest.IsolatedAsyncioTestCase):
         async def violate_sync(x):
             return x + 1
 
+        async def violate_bind_sync():
+            return 10
+
         eff = Eff.of(1)
         with self.assertRaises(MonadError):
             eff.map_to_thread(violate_sync)
 
-        eff = Eff.of(1)
+        eff = Eff.of(1).bind_to_thread(lambda v: Eff(violate_bind_sync))
         with self.assertRaises(MonadError):
-            eff.bind_to_thread(violate_sync)
+            await eff.run()
 
         eff = Eff.of(1).map_to_thread(lambda x: Eff.of(x))
         with self.assertRaises(MonadError):

@@ -121,18 +121,18 @@ class Eff(Generic[A]):
     def bind_to_thread(self, fn):
         """
            Applies a SYNC ONLY function that returns an Eff entity.
-           Executes it in a separate thread - ONLY an external function that returns AsyncIO.
+           Executes it in a separate thread - ONLY inner function inside Eff.
            :raises MonadError: violation of the contract
         """
-        panics.on_coroutine(fn, monad_name=self.__class__.__name__, method='bind_to_thread')
 
         async def new_effect():
             previous = await _maybe_await(self.effect())
             if TUtils.is_bad(previous):
                 return previous
-            current_effect = await asyncio.to_thread(fn, previous)
+            current_effect = await _maybe_await(fn(previous))
             panics.on_another_instance(current_effect, fn=fn, monad=self.__class__, method='bind_to_thread')
-            current = await _maybe_await(current_effect.effect())
+            panics.on_coroutine(current_effect.effect, monad_name=self.__class__.__name__, method='bind_to_thread')
+            current = await asyncio.to_thread(current_effect.effect)
             return current
 
         return Eff(new_effect)
@@ -179,7 +179,7 @@ class Eff(Generic[A]):
         return Eff(new_effect)
 
     def to_task(self) -> asyncio.Task:
-        """Wrap the inner effect into a Task. Inner effect must be a coroutine function.
+        """Wraps the inner effect into a Task. Inner effect must be a coroutine function.
            :raises MonadError: inner effect is a sync function
         """
         panics.on_sync(self.effect, monad_name=self.__class__.__name__, method='to_task')
@@ -196,8 +196,8 @@ class Eff(Generic[A]):
             async with asyncio.timeout(delay=delay):
                 return await _maybe_await(self.effect())
 
-    @classmethod
-    def of(cls, value: A) -> 'Eff[A]':
+    @staticmethod
+    def of(value: A) -> 'Eff[A]':
         """Wraps a non-Eff value in the container. No inspections here."""
         return Eff(lambda: value)
 
