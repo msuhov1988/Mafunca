@@ -388,9 +388,9 @@ def for_curry(a: int, b: int, *args, **kwargs) -> list:
     return [a, b, args, kwargs]
 
 res = for_curry(1, b=2)
-callable(for_curry)   # True - expects at least one positional and one named argument
+callable(res)   # True - expects at least one positional and one named argument
 res = res(0, 0)       # passing two positional arguments to *args
-callable(for_curry)   # True - still waiting for at least one named argument
+callable(res)   # True - still waiting for at least one named argument
 
 # passing one named arg and launch original function
 res(another=10)       # [1, 2, (0, 0), {'another': 10}]
