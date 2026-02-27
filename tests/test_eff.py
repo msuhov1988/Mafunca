@@ -2,7 +2,7 @@ import unittest
 import asyncio
 
 from mafunca.triple import Left, Nothing
-from mafunca.exceptions import MonadError
+from mafunca.common.exceptions import MonadError
 from mafunca.eff import Eff
 
 

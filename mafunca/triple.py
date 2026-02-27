@@ -1,10 +1,10 @@
 from abc import ABC, abstractmethod
 from typing import TypeVar, ParamSpec, Generic, Union, overload
 from collections.abc import Callable
-import inspect
 from functools import wraps
 
-from mafunca.exceptions import ImpureMarkError, MonadError
+from mafunca.common.exceptions import ImpureMarkError, MonadError
+import mafunca.common.panics as panics
 
 
 __all__ = [
@@ -92,19 +92,9 @@ class Triple(ABC):
 
 
 def _panic_on_bad_function(fn: Callable, monad: str, method: str, check_impure=True):
-    if inspect.iscoroutinefunction(fn):
-        raise MonadError(monad, method, f"function '{fn.__name__}' must be sync")
+    panics.on_coroutine(fn, monad_name=monad, method=method)
     if check_impure and is_impure(fn):
         raise MonadError(monad, method, f"impure function '{fn.__name__}' can not be used")
-
-
-def _panic_on_monadic_result(value, fn: Callable, monad: str, method: str):
-    if isinstance(value, Triple):
-        raise MonadError(
-            monad,
-            method,
-            f"return value {value} of applying function '{fn.__name__}' must not be a Triple entity"
-        )
 
 
 class _Never:
@@ -139,7 +129,7 @@ class Right(Triple, Generic[R]):
         """
         _panic_on_bad_function(fn, monad=self.__class__.__name__, method='map')
         result: V = fn(self.value)
-        _panic_on_monadic_result(result, fn=fn, monad=self.__class__.__name__, method='map')
+        panics.on_monadic_result(result, fn=fn, monad=Triple, method='map')
         return Right(result)
 
     @overload

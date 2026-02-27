@@ -2,7 +2,7 @@ import unittest
 import asyncio
 
 from mafunca.triple import Right, Left, Nothing, TUtils, impure
-from mafunca.exceptions import MonadError, CurryBadArguments
+from mafunca.common.exceptions import MonadError, CurryBadArguments
 from mafunca.curry import curry, async_curry
 
 

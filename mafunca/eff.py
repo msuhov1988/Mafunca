@@ -4,7 +4,8 @@ import inspect
 import asyncio
 
 from mafunca.triple import Left, Nothing, TUtils
-from mafunca.exceptions import MonadError
+from mafunca.common.exceptions import MonadError
+import mafunca.common.panics as panics
 
 
 __all__ = ['Eff']
@@ -17,36 +18,6 @@ C = TypeVar('C')
 L = TypeVar('L')
 Exc = TypeVar('Exc', bound=Exception)
 T = TypeVar('T')
-
-
-def _panic_on_coroutine(fn: Callable, monad_name: str, method: str):
-    if inspect.iscoroutinefunction(fn):
-        raise MonadError(monad_name, method, f"function '{fn.__name__}' - async function can not be used")
-
-
-def _panic_on_sync(fn: Callable, monad_name: str, method: str):
-    if not inspect.iscoroutinefunction(fn):
-        raise MonadError(monad_name, method, f"function '{fn.__name__}' - sync function can not be used")
-
-
-def _panic_on_monadic_result(result, fn: Callable, monad, method: str):
-    if isinstance(result, monad):
-        monad_name = monad.__name__
-        raise MonadError(
-            monad_name,
-            method,
-            f"return value {result} of applying function '{fn.__name__}' - must not be '{monad_name}' entity"
-        )
-
-
-def _panic_on_other_result(result, fn: Callable, monad, method: str):
-    if not isinstance(result, monad):
-        monad_name = monad.__name__
-        raise MonadError(
-            monad_name,
-            method,
-            f"return value {result} of applying function '{fn.__name__}' must be '{monad_name}' entity"
-        )
 
 
 async def _maybe_await(obj: Union[Awaitable[T], T]) -> T:
@@ -85,7 +56,7 @@ class Eff(Generic[A]):
             if TUtils.is_bad(previous):
                 return previous
             current = await _maybe_await(fn(previous))
-            _panic_on_monadic_result(current, fn=fn, monad=self.__class__, method='map')
+            panics.on_monadic_result(current, fn=fn, monad=self.__class__, method='map')
             return current
         return Eff(new_effect)
 
@@ -102,14 +73,14 @@ class Eff(Generic[A]):
            Executes it in a separate thread.
            :raises MonadError: violation of the contract
         """
-        _panic_on_coroutine(fn, monad_name=self.__class__.__name__, method='map_to_thread')
+        panics.on_coroutine(fn, monad_name=self.__class__.__name__, method='map_to_thread')
 
         async def new_effect():
             previous = await _maybe_await(self.effect())
             if TUtils.is_bad(previous):
                 return previous
             current = await asyncio.to_thread(fn, previous)
-            _panic_on_monadic_result(current, fn=fn, monad=self.__class__, method='map_to_thread')
+            panics.on_monadic_result(current, fn=fn, monad=self.__class__, method='map_to_thread')
             return current
 
         return Eff(new_effect)
@@ -135,7 +106,7 @@ class Eff(Generic[A]):
             if TUtils.is_bad(previous):
                 return previous
             current_effect = await _maybe_await(fn(previous))
-            _panic_on_other_result(current_effect, fn=fn, monad=self.__class__, method='bind')
+            panics.on_another_instance(current_effect, fn=fn, monad=self.__class__, method='bind')
             current = await _maybe_await(current_effect.effect())
             return current
         return Eff(new_effect)
@@ -153,14 +124,14 @@ class Eff(Generic[A]):
            Executes it in a separate thread - ONLY an external function that returns AsyncIO.
            :raises MonadError: violation of the contract
         """
-        _panic_on_coroutine(fn, monad_name=self.__class__.__name__, method='bind_to_thread')
+        panics.on_coroutine(fn, monad_name=self.__class__.__name__, method='bind_to_thread')
 
         async def new_effect():
             previous = await _maybe_await(self.effect())
             if TUtils.is_bad(previous):
                 return previous
             current_effect = await asyncio.to_thread(fn, previous)
-            _panic_on_other_result(current_effect, fn=fn, monad=self.__class__, method='bind_to_thread')
+            panics.on_another_instance(current_effect, fn=fn, monad=self.__class__, method='bind_to_thread')
             current = await _maybe_await(current_effect.effect())
             return current
 
@@ -211,7 +182,7 @@ class Eff(Generic[A]):
         """Wrap the inner effect into a Task. Inner effect must be a coroutine function.
            :raises MonadError: inner effect is a sync function
         """
-        _panic_on_sync(self.effect, monad_name=self.__class__.__name__, method='to_task')
+        panics.on_sync(self.effect, monad_name=self.__class__.__name__, method='to_task')
         return asyncio.create_task(self.effect())
 
     async def run(self, delay: Optional[Union[int, float]] = None) -> A:

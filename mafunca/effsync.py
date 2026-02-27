@@ -1,9 +1,9 @@
 from typing import TypeVar, Generic, overload
 from collections.abc import Callable
-import inspect
 
 from mafunca.triple import Left, Nothing, TUtils
-from mafunca.exceptions import MonadError
+from mafunca.common.exceptions import MonadError
+import mafunca.common.panics as panics
 
 
 __all__ = ['EffSync']
@@ -17,31 +17,6 @@ L = TypeVar('L')
 Exc = TypeVar('Exc', bound=Exception)
 
 
-def _panic_on_coroutine(fn: Callable, monad_name: str, method: str):
-    if inspect.iscoroutinefunction(fn):
-        raise MonadError(monad_name, method, f"function '{fn.__name__}' - async function can not be used")
-
-
-def _panic_on_monadic_result(result, fn: Callable, monad, method: str):
-    if isinstance(result, monad):
-        monad_name = monad.__name__
-        raise MonadError(
-            monad_name,
-            method,
-            f"return value {result} of applying function '{fn.__name__}' must not be '{monad_name}' entity"
-        )
-
-
-def _panic_on_other_result(result, fn: Callable, monad, method: str):
-    if not isinstance(result, monad):
-        monad_name = monad.__name__
-        raise MonadError(
-            monad_name,
-            method,
-            f"return value {result} of applying function '{fn.__name__}' must be '{monad_name}' entity"
-        )
-
-
 class EffSync(Generic[A]):
     """Lazy monad for sync effects.
        It can work with bad 'Triple' entities using the short-circuit principle
@@ -50,7 +25,7 @@ class EffSync(Generic[A]):
     __slots__ = ["effect"]
 
     def __init__(self, effect: Callable[[], A]):
-        _panic_on_coroutine(effect, monad_name=self.__class__.__name__, method='__init__')
+        panics.on_coroutine(effect, monad_name=self.__class__.__name__, method='__init__')
         self.effect = effect
 
     @overload
@@ -65,14 +40,14 @@ class EffSync(Generic[A]):
            Applies a sync function that returns a non-EffSync entity.
            :raises MonadError: violation of the contract
         """
-        _panic_on_coroutine(fn, monad_name=self.__class__.__name__, method='map')
+        panics.on_coroutine(fn, monad_name=self.__class__.__name__, method='map')
 
         def new_effect():
             previous = self.effect()
             if TUtils.is_bad(previous):
                 return previous
             current = fn(previous)
-            _panic_on_monadic_result(current, fn=fn, monad=self.__class__, method='map')
+            panics.on_monadic_result(current, fn=fn, monad=self.__class__, method='map')
             return current
         return EffSync(new_effect)
 
@@ -88,14 +63,14 @@ class EffSync(Generic[A]):
            Applies a sync function that returns an EffSync entity.
            :raises MonadError: violation of the contract
         """
-        _panic_on_coroutine(fn, monad_name=self.__class__.__name__, method='bind')
+        panics.on_coroutine(fn, monad_name=self.__class__.__name__, method='bind')
 
         def new_effect():
             previous = self.effect()
             if TUtils.is_bad(previous):
                 return previous
             current_effect = fn(previous)
-            _panic_on_other_result(current_effect, fn=fn, monad=self.__class__, method='bind')
+            panics.on_another_instance(current_effect, fn=fn, monad=self.__class__, method='bind')
             current = current_effect.effect()
             return current
         return EffSync(new_effect)
@@ -111,7 +86,7 @@ class EffSync(Generic[A]):
            It can return both EffSync and non-EffSync entities.
            MonadError is not suppressed.
         """
-        _panic_on_coroutine(fn, monad_name=self.__class__.__name__, method='catch')
+        panics.on_coroutine(fn, monad_name=self.__class__.__name__, method='catch')
 
         def new_effect():
             try:
@@ -127,7 +102,7 @@ class EffSync(Generic[A]):
 
     def ensure(self, fn: Callable[[], None]) -> 'EffSync[A]':
         """Guaranteed to execute the function-parameter, similar to try finally"""
-        _panic_on_coroutine(fn, monad_name=self.__class__.__name__, method='ensure')
+        panics.on_coroutine(fn, monad_name=self.__class__.__name__, method='ensure')
 
         def new_effect():
             try:

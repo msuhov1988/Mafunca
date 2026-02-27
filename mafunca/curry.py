@@ -2,39 +2,11 @@ import inspect
 from collections.abc import Callable, Awaitable
 from typing import TypeVar, ParamSpec, Generic, Union, List, Dict
 
-from mafunca.exceptions import CurryBadFunctionError, CurryBadArguments
+from mafunca.common.exceptions import CurryBadArguments
+import mafunca.common.panics as panics
 
 
 __all__ = ['curry', 'async_curry']
-
-
-def _extract_func_name(func) -> str:
-    return getattr(func, "__qualname__", f"{func}")
-
-
-def _panic_on_bad_function(func):
-    if not inspect.isfunction(func):
-        raise CurryBadFunctionError(func_name=_extract_func_name(func), err="must be a callable")
-    if inspect.isbuiltin(func):
-        raise CurryBadFunctionError(func_name=_extract_func_name(func), err="should not be a built-in function")
-    if inspect.ismethod(func):
-        raise CurryBadFunctionError(func_name=_extract_func_name(func), err="should not be a bound method")
-
-
-def _panic_on_coroutine(func: Callable):
-    if inspect.iscoroutinefunction(func):
-        raise CurryBadFunctionError(
-            func_name=_extract_func_name(func),
-            err="should not be an async function. Use async curry decorator instead."
-        )
-
-
-def _panic_on_sync(func: Callable):
-    if not inspect.iscoroutinefunction(func):
-        raise CurryBadFunctionError(
-            func_name=_extract_func_name(func),
-            err="should not be a sync function. Use sync curry decorator instead."
-        )
 
 
 def _in_place_endpoints_filter(sig: inspect.Signature, bound_args: inspect.BoundArguments) -> inspect.BoundArguments:
@@ -105,7 +77,7 @@ class Curry(Generic[R], _Base):
             new_curry._update_state(sig, [*self._pos, *bound_args.args], {**self._named, **bound_args.kwargs})
             return new_curry
         except TypeError as err:
-            raise CurryBadArguments(func_name=_extract_func_name(self._func), err=err.args[0]) from None
+            raise CurryBadArguments(func_name=panics.extract_name(self._func), err=err.args[0]) from None
 
     def run_for_var(self) -> R:
         """
@@ -131,7 +103,7 @@ class AsyncCurry(Generic[R], _Base):
             new_curry._update_state(sig, [*self._pos, *bound_args.args], {**self._named, **bound_args.kwargs})
             return new_curry
         except TypeError as err:
-            raise CurryBadArguments(func_name=_extract_func_name(self._func), err=err.args[0]) from None
+            raise CurryBadArguments(func_name=panics.extract_name(self._func), err=err.args[0]) from None
 
     async def run_for_var(self) -> R:
         """
@@ -147,8 +119,8 @@ def curry(fn: Callable[[A], R]) -> Curry[R]:
        :raises CurryBadFunctionError: passed function is not suitable
        :raises CurryBadArguments: error at the level of the arguments being passed
     """
-    _panic_on_bad_function(func=fn)
-    _panic_on_coroutine(func=fn)
+    panics.on_bad_curried(func=fn)
+    panics.curry_on_coroutine(func=fn)
     curried = Curry(fn)
     curried.__doc__ = fn.__doc__
     return curried
@@ -160,8 +132,8 @@ def async_curry(fn: Callable[[A], Awaitable[R]]) -> AsyncCurry[R]:
        :raises CurryBadFunctionError: passed function is not suitable
        :raises CurryBadArguments: error at the level of the arguments being passed
     """
-    _panic_on_bad_function(func=fn)
-    _panic_on_sync(func=fn)
+    panics.on_bad_curried(func=fn)
+    panics.curry_on_sync(func=fn)
     curried = AsyncCurry(fn)
     curried.__doc__ = fn.__doc__
     return curried
