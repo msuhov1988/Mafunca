@@ -137,11 +137,3 @@ def async_curry(fn: Callable[[A], Awaitable[R]]) -> AsyncCurry[R]:
     curried = AsyncCurry(fn)
     curried.__doc__ = fn.__doc__
     return curried
-
-
-@curry
-def test(a, b):
-    return a + b
-
-print(test)
-print(test.origin)
