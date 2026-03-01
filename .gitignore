@@ -1,3 +1,5 @@
 /.venv
 /.idea
+/dist
+/mafunca.egg-info
 *.pyc
