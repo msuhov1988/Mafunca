@@ -1,3 +1,7 @@
+[![PyPI version](https://img.shields.io/pypi/v/mafunca.svg)](https://pypi.org/project/mafunca/)
+[![Python versions](https://img.shields.io/pypi/pyversions/mafunca.svg)](https://pypi.org/project/mafunca/)
+[![License](https://img.shields.io/pypi/l/mafunca.svg)](https://pypi.org/project/mafunca/)
+
 # Some useful things from the world of functional programming for python
 
 ### The goal is not to cover "everything" about functional programming, but to provide some useful things in the most practical way (at least from the author's perspective).
