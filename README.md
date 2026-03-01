@@ -4,6 +4,8 @@
 ### The library is minimalistic and has no dependencies.  
 ### It emphasizes strict adherence to contracts and a clear separation between synchronous and asynchronous operations.
 
+### [Installiation](#installation)
+- [Install mafunca](#install-mafunca)
 
 ### [Simple monads on value](#simple-monads-on-value)
 - [Description](#description)
@@ -22,6 +24,15 @@
 
 ### [Exceptions](#exceptions)
 - [Description of exceptions](#description-of-exceptions)
+
+## Installation
+### Install mafunca
+```
+pip install mafunca
+```
+```
+python -m pip install mafunca
+```
 
 ## Simple monads on value
 ### Description
