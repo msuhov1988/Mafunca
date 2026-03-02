@@ -352,6 +352,7 @@ This library implements powerful and flexible curry decorators.
 - Flexible support for default values.
 - Support for variable arguments of the form *args , **kwargs.
 - The ability to use positional and/or named arguments in any quantity or combination.
+- The arguments that haven't been supplied yet are clearly visible in the debug print
 - Support currying for sync and async functions(different currying decorators).
 
 ### Currying examples
@@ -416,6 +417,22 @@ res2 = for_curry(a=1)(b=2)
 # a special method that allows you to run a function
 # without passing anything for *args and **kwargs
 res2.run_for_var()    # [1, 2, (), {}]
+```
+#### Debug print:
+```python
+from mafunca.curry import curry
+
+@curry
+def test(a, b=0, *args, c=10, **kwargs):
+    return [a, b, c, args, kwargs]
+
+
+cr1 = test(1, c=100)
+print(cr1)       # __main__.Curry(<function test at ...>, 1, c=100)(b=0, *args, **kwargs)
+cr2 = cr1()     
+print(cr2)       # __main__.Curry(<function test at ...>, 1, 0, c=100)(*args, **kwargs)
+cr3 = cr2(9, 9)  
+print(cr3)       # __main__.Curry(<function test at ...>, 1, 0, 9, 9, c=100)(**kwargs)
 ```
 #### Async currying:
 ```python
