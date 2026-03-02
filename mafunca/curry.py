@@ -58,7 +58,7 @@ class _Base:
         args = [repr(self._func)]
         args.extend(repr(x) for x in self._pos)
         args.extend(f"{k}={v!r}" for (k, v) in self._named.items())
-        return f"{module}.{name}({', '.join(args)})"
+        return f"{module}.{name}({', '.join(args)}){self._sig}"
 
 
 class Curry(Generic[R], _Base):
