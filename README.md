@@ -500,7 +500,6 @@ report = insist(resilient, attempts=3)
 
 ### Resilient limitations
 - Of course, you must ensure that the shortened chain is safe to run. Your functions should not leave any "traces" if an error occurs, for example.
-- If you use the **.catch** method in a chain, the shortened chain will start no earlier than the method itself, of course.
 - Be careful with the **.ensure** method - it is always executed. This means that it will also be executed in the shortened chain if it gets there.
 
 ## Currying
