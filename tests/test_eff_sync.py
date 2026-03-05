@@ -1,7 +1,7 @@
 import unittest
 
 from mafunca.common.exceptions import MonadError
-from mafunca.effsync import EffSync
+from mafunca.eff_sync import EffSync
 from mafunca.triple import Right, Left, Nothing
 
 

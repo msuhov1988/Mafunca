@@ -7,7 +7,8 @@
 ### The goal is not to cover "everything" about functional programming, but to provide some useful things in the most practical way (at least from the author's perspective).
 ### The library is minimalistic and has no dependencies. 
 ### Provides advanced, feature-rich currying decorators.
-### It emphasizes strict adherence to contracts and a clear separation between synchronous and asynchronous operations.
+### Resilient effects
+### Emphasizes strict adherence to contracts and a clear separation between synchronous and asynchronous operations.
 
 ### [Installiation](#installation)
 - [Install mafunca](#install-mafunca)
@@ -22,6 +23,12 @@
 - [Description of effects](#description-of-effects)
 - [Effect methods](#effect-methods)
 - [Effect examples](#effect-examples)
+
+### [Resilient effects](#resilient-effects)
+- [Description of resilient effects](#description-of-resilient-effects)
+- [Resilient chained methods](#resilient-chained-methods)
+- [Resilient effect example](#resilient-effect-example)
+- [Resilient limitations](#resilient-limitations)
 
 ### [Currying](#currying)
 - [Description of currying](#description-of-currying)
@@ -264,7 +271,7 @@ Why laziness?
 It allows you to describe side effects within a regular function, keeping it 'pure':
 ```python
 from mafunca.triple import impure
-from mafunca.effsync import EffSync
+from mafunca.eff_sync import EffSync
 
 @impure
 def database_communication(number: int): ...
@@ -294,7 +301,7 @@ Two monads are implemented here:
 
 ```python
 from mafunca.eff import Eff
-from mafunca.effsync import EffSync
+from mafunca.eff_sync import EffSync
 ```
 
 ### Effect methods
@@ -319,7 +326,7 @@ from mafunca.effsync import EffSync
 import asyncio
 
 from mafunca.eff import Eff
-from mafunca.effsync import EffSync
+from mafunca.eff_sync import EffSync
 from mafunca.triple import Left
 
 # short circuit on bad Triple entity
@@ -341,6 +348,160 @@ asyncio.run(async_eff.run())  # 10, async_eff.run - async method
 async_eff = Eff(raiser).ensure(lambda: print("finally"))
 asyncio.run(async_eff.run())  # the word will be printed despite the uncaught exception
 ```
+
+## Resilient effects
+### Description of resilient effects
+These effects are a further development of **Eff** and **EffSync**.  
+By default, **Eff** and **EffSync** short-circuit 'bad' **Triple** instances, pushing these values up until the calculation is complete.  
+This greatly increases the reliability of the functional chain:
+```python
+from mafunca.eff import Eff
+
+# if I catch all errors or nulls reliably in func1 and return Left or Nothing
+# I don't have to worry about further functions in the chain
+Eff.of(value).map(func1).map(func2).map(func3)...
+```
+It is quite logical to demand further improvements from such a monad:
+- instead of just returning a 'bad' **Triple** entity, it should also return a reference to the failed function
+- let it return a **shortened chain from the point of failure** so that it can be restarted
+- let it **catch all errors** by returning a **special object** that indicates that this is an exception that we did not catch. For such an object, let it:
+    - also makes a short circuit
+    - it also returns a reference to the failed function and a **shortened chain from the point of failure**
+
+All of this can be useful, given that effectful monads often contain functions that make requests to external systems.  
+In such scenarios, it is not uncommon for errors to be caused by external factors rather than our code, and they may be temporary in nature.  
+The resilient effects implemented here have this set of **FEATURES**.  
+
+Usage:
+```python
+# STRICTLY for synchronous effects
+from mafunca.resilient_sync import ResilientSyncPrime, ResilientSyncCont
+from mafunca.resilient_sync import of, unit, insist
+```
+```python
+# for asynchronous effects, but it can also work with synchronous functions
+from mafunca.resilient import ResilientPrime, ResilientCont
+from mafunca.resilient import of, unit, insist
+```
+**ResilientSyncPrime** and **ResilientPrime** - the beginning of a chain - always contains a function of the form **Callable[[], A]** as in classical effects.  
+**ResilientSyncCont** and **ResilientCont** - continuation - created when passing the **Callable[[A], B]** function through chained methods.  
+These Prime-Cont pairs have an identical interface.  
+**IMPORTANT: Use these classes only for typing purposes. A typical usage pattern is as follows:**
+```python
+# everything is the same for the synchronous module
+from mafunca.resilient import of, unit
+
+prime_one = of(10)            # ResilientPrime(lambda: 10)
+prime_two = unit(lambda: 10)  # ResilientPrime(lambda: 10)
+
+# So, you do not need to use these classes directly.
+resilient1 = of(some_value).chain(...).chain(...)       # ResilientCont(...)
+resilient2 = unit(some_function).chain(...).chain(...)  # ResilientCont(...)
+```
+Calling the **run** method for such monads always returns a special object instead of a direct result:
+```python
+from mafunca.common.resilient_support import Report, Uncaught
+
+# somewhere inside the asynchronous context ...
+
+# normal start, as in a classic monad
+report1 = await resilient1.run()
+isinstance(report1, Report)      # True
+report1.result                   # direct result or Uncaught object
+report1.chain_from_failure       # None
+report1.faulty                   # None
+report1.is_ok                    # True
+
+# restore the shortened chain(on failure) and identify the source of the failure
+report2 = await resilient2.run(rebiuld=True)
+isinstance(report2, Report)      # True
+
+report2.result                   # direct result or Uncaught object
+report2.chain_from_failure       # restored chain or None
+report2.faulty                   # callable or None (source of the failure)
+report2.is_ok                    # False or True (was there a failure or not)
+
+# an object that contains an exception that was not caught by user code
+exc = Uncaught(SomeUncaughtException)
+exc.error    # SomeUncaughtException
+exc.throw    # raise SomeUncaughtException
+```
+### Resilient chained methods
+| Method                                            | Description                                                                                                    | resilient module          | resilient_sync module         |
+|---------------------------------------------------|----------------------------------------------------------------------------------------------------------------|---------------------------|-------------------------------|
+| **.chain(fn)**                                    | combines both **map** and **bind** methods of regular monads                                                   | returns new ResilientCont | returns new ResilientSyncCont |
+| **.catch(fn)**                                    | Catches errors. **fn** - function of the form **Callable[[Exc], R]**, where **Exc** - subtype of **Exception** | returns new ResilientCont | returns new ResilientSyncCont |
+| **.ensure(fn)**                                   | Acts like **finally**. **fn** - function without parameters and a return value (returns None)                  | returns new ResilientCont | returns new ResilientSyncCont |
+| **.to_task(rebuild: bool = False)**               | Wraps the inner effect into a Task. Parameter 'rebuild' the same as in **run** method                          | returns asyncio.Task      | -                             |
+| **.run(rebuild: bool = False)**                   | Performs a chain of effects. **rebuild=True** - restore the shortened chain(on failure).                       | -                         | returns Report object         |
+| **async .run(rebuild: bool = False, delay=None)** | The same as sync **run**. **delay** - uses the **asyncio.timeout** mechanism to limit execution time           | returns Report object     | -                             |
+
+#### Module function **'insist'**:
+  | Module         | Signature                                                               | Description                                                                                                          |
+  |----------------|-------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------|
+  | resilient_sync | **insist(resilient, attempts, pause_between)**                          | Makes 'attempts' to execute a 'resilient' chain with 'pause_between' intervals between them                          |
+  | resilient      | **async insist(resilient, attempts, delay_for_attempt, pause_between)** | Makes 'attempts' with 'delay_for_attempt' to execute a 'resilient' chain with 'pause_between' intervals between them |
+
+### Resilient effect example
+#### A decorative example:
+```python
+from mafunca.resilient_sync import of, insist
+
+def malfunction():
+    counter = 0
+
+    def malfunction_inner(value):
+        nonlocal counter
+        counter += 1
+        if counter < 3:
+            raise TypeError("it's too early")
+        return value ** 2
+
+    return malfunction_inner
+
+
+def step_one(value):
+    print("one")
+    return value + 1
+
+
+def step_two(value):
+    print("two")
+    return value + 1
+
+
+def step_final(value):
+    print("final")
+    return (value,)
+
+
+fail = malfunction()
+resilient = of(0).chain(step_one).chain(step_two).chain(fail).chain(step_final)
+
+report = resilient.run(rebuild=True)
+report = report.chain_from_failure.run(rebuild=True)
+report = report.chain_from_failure.run(rebuild=True)
+print(report.result, report.is_ok)
+```
+Console output:
+```
+# notice that 'one' and 'two' are printed only once,
+# because we repeat the chain from the point of failure, not from the beginning
+one
+two
+final
+(4,) True
+```
+Or even shorter:
+```python
+report = insist(resilient, attempts=3)
+# the output to the console will be the same
+```
+
+### Resilient limitations
+- Of course, you must ensure that the shortened chain is safe to run. Your functions should not leave any "traces" if an error occurs, for example.
+- If you use the **.catch** method in a chain, the shortened chain will start no earlier than the method itself, of course.
+- Be careful with the **.ensure** method - it is always executed. This means that it will also be executed in the shortened chain if it gets there.
 
 ## Currying
 ### Description of currying

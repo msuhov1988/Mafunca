@@ -124,7 +124,7 @@ def _execute(value: A, fn: Callable[[A], B]) -> Union[B, Uncaught[Exc]]:
             result = report.result
         return result
     except Exception as exc:
-        if isinstance(exc, (MonadError, KeyboardInterrupt)):
+        if isinstance(exc, MonadError):
             raise exc
         return Uncaught(exc)
 

@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mafunca"
-version = "0.1.2"
+version = "0.2.0"
 description = "Some useful things from the world of functional programming for python."
-readme = "README.md"
+readme = "pypi.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
 authors = [

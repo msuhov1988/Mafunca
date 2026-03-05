@@ -3,7 +3,7 @@ import sys
 
 
 from test_triple_and_curry import TestTripleAndCurry, TestAsyncCurry
-from test_effsync import TestEffSync
+from test_eff_sync import TestEffSync
 from test_eff import TestEff
 from test_resilient_sync import TestResilientSync
 from test_resilient import TestResilient

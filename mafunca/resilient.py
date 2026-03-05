@@ -122,7 +122,7 @@ async def _execute(value: A, fn: Callable):
             result = report.result
         return result
     except Exception as exc:
-        if isinstance(exc, (MonadError, KeyboardInterrupt)):
+        if isinstance(exc, MonadError):
             raise exc
         return Uncaught(exc)
 
