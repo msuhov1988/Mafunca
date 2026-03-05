@@ -30,10 +30,14 @@ class Eff(Generic[A]):
        Can work with both synchronous and asynchronous functions.
     """
 
-    __slots__ = ["effect"]
+    __slots__ = ["_effect"]
 
     def __init__(self, effect: Callable[[], A]):
-        self.effect = effect
+        self._effect = effect
+
+    @property
+    def effect(self) -> Callable[[], A]:
+        return self._effect
 
     @overload
     def map(self: 'Eff[Left[L]]', fn: Callable[[B], C]) -> 'Eff[Left[L]]': pass
@@ -158,7 +162,7 @@ class Eff(Generic[A]):
             try:
                 return await _maybe_await(self.effect())
             except Exception as err:
-                if isinstance(err, (MonadError, KeyboardInterrupt)):
+                if isinstance(err, MonadError):
                     raise err
                 current = await _maybe_await(fn(err))
                 if isinstance(current, self.__class__):

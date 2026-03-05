@@ -460,7 +460,7 @@ class TUtils:
                 result: V = fn(*args, **kwargs)
                 return Right(result)
             except Exception as err:
-                if isinstance(err, (MonadError, KeyboardInterrupt)):
+                if isinstance(err, MonadError):
                     raise err
                 return Left(err)
 

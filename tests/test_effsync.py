@@ -62,7 +62,7 @@ class TestEffSync(unittest.TestCase):
             .catch(lambda _: 0)     # no effect here
             .bind(lambda x: EffSync(lambda: x + 5))
             .map(lambda x: x + 5)
-            .catch(lambda: EffSync(error_raiser))    # no effect here
+            .catch(lambda _: EffSync(error_raiser))    # no effect here
             .bind(lambda x: EffSync(lambda: x + 5))
         )
         self.assertEqual(eff.run(), 20)

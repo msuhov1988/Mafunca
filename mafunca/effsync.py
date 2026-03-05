@@ -22,11 +22,15 @@ class EffSync(Generic[A]):
        It can work with bad 'Triple' entities using the short-circuit principle
     """
 
-    __slots__ = ["effect"]
+    __slots__ = ["_effect"]
 
     def __init__(self, effect: Callable[[], A]):
         panics.on_coroutine(effect, monad_name=self.__class__.__name__, method='__init__')
-        self.effect = effect
+        self._effect = effect
+
+    @property
+    def effect(self) -> Callable[[], A]:
+        return self._effect
 
     @overload
     def map(self: 'EffSync[Left[L]]', fn: Callable[[B], C]) -> 'EffSync[Left[L]]': pass
@@ -92,7 +96,7 @@ class EffSync(Generic[A]):
             try:
                 return self.effect()
             except Exception as err:
-                if isinstance(err, (MonadError, KeyboardInterrupt)):
+                if isinstance(err, MonadError):
                     raise err
                 current = fn(err)
                 if isinstance(current, self.__class__):
