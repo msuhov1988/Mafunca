@@ -215,12 +215,15 @@ class ResilientCont(_Resilient[B]):
 
         for i in range(len(cons) - 1, -1, -1):
             result_new = await _execute(result, cons[i])
-            if rebuild and (isinstance(result_new, Uncaught) or TUtils.is_bad(result_new)):
-                if restored is None:
-                    prime = ResilientPrime(_make_effect(result))
-                    restored, faulty = ResilientCont(cons[i], past=prime), _extract_from_closure(cons[i])
+            if rebuild:
+                if isinstance(result_new, Uncaught) or TUtils.is_bad(result_new):
+                    if restored is None:
+                        prime = ResilientPrime(_make_effect(result))
+                        restored, faulty = ResilientCont(cons[i], past=prime), _extract_from_closure(cons[i])
+                    else:
+                        restored = ResilientCont(cons[i], past=restored)
                 else:
-                    restored = ResilientCont(cons[i], past=restored)
+                    restored, faulty = None, None
             result = result_new
 
         if isinstance(result, Uncaught) or TUtils.is_bad(result):

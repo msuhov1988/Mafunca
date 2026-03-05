@@ -352,6 +352,16 @@ class TestResilientSync(unittest.TestCase):
         rp = unit(failure_prime).chain(failure).run(rebuild=True)
         self.assertIs(rp.faulty, failure_prime)
 
+    def test_catch_breaks_restored_chain(self):
+        def failure1(arg):
+            return arg / 0
+
+        def failure2(arg):
+            return arg / 0
+
+        rp = of(10).chain(failure1).chain(lambda v: v + 1).catch(lambda _: 0).chain(failure2).run(rebuild=True)
+        self.assertIs(rp.faulty, failure2)
+
 
 if __name__ == '__main__':
     unittest.main()
