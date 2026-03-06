@@ -632,6 +632,9 @@ print(test.origin)  # <function test at 0x000001E94746E5C0>
 
 ## Exceptions
 ### Description of exceptions
+```python
+import mafunca.common.exceptions
+```
 - **MonadError** - thrown when monadic contracts are violated. It is not recommended to catch.  
   It is not caught in **TUtils.from_try**, nor in methods of the **.catch** type. Separated - not in the error hierarchy of this library.
 - **BaseLibError** - base library level exception
