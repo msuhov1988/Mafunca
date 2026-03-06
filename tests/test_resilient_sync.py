@@ -120,7 +120,7 @@ class TestResilientSync(unittest.TestCase):
         def inner_chain(val: int):
             return of(val).chain(lambda _: Left('error')).chain(lambda v: v + 1)
 
-        rp = of(5).chain(lambda v: v + 5).chain(inner_chain).run()
+        rp = of(5).chain(lambda v: v + 5).chain(inner_chain).chain(lambda v: v + 1).run()
         self.assertIsInstance(rp.result, Left)
 
     def test_nested_uncaught_errors(self):
@@ -138,9 +138,9 @@ class TestResilientSync(unittest.TestCase):
             raise TypeError('error')
 
         def inner_chain(val: int):
-            return unit(raiser).chain(lambda _: val + 1).catch(lambda _: 0)
+            return unit(raiser).chain(lambda _: val + 1)
 
-        rp = of(5).chain(lambda v: v + 5).chain(inner_chain).run()
+        rp = of(5).chain(lambda v: v + 5).chain(inner_chain).catch(lambda _: 0).run()
         self.assertEqual(rp.result, 0)
 
     def test_nested_caught_ensure(self):
@@ -154,9 +154,9 @@ class TestResilientSync(unittest.TestCase):
             g += 1
 
         def inner_chain(val: int):
-            return unit(raiser).chain(lambda _: val + 1).ensure(plus)
+            return unit(raiser).chain(lambda _: val + 1)
 
-        rp = of(5).chain(lambda v: v + 5).chain(inner_chain).run()
+        rp = of(5).chain(lambda v: v + 5).chain(inner_chain).ensure(plus).run()
         self.assertIsInstance(rp.result, Uncaught)
         self.assertEqual(g, 1)
 
@@ -326,9 +326,9 @@ class TestResilientSync(unittest.TestCase):
             b += 1
 
         def inner(o):
-            return of(o).chain(plus).ensure(ensure_plus)
+            return of(o).chain(plus)
 
-        resilient = of(10).chain(lambda v: v + 10).chain(inner).chain(lambda v: v + 1)
+        resilient = of(10).chain(lambda v: v + 10).chain(inner).chain(lambda v: v + 1).ensure(ensure_plus)
         rp = resilient.run(rebuild=True)
         rp = rp.chain_from_failure.run(rebuild=True)
         rp = rp.chain_from_failure.run(rebuild=True)
@@ -361,6 +361,26 @@ class TestResilientSync(unittest.TestCase):
 
         rp = of(10).chain(failure1).chain(lambda v: v + 1).catch(lambda _: 0).chain(failure2).run(rebuild=True)
         self.assertIs(rp.faulty, failure2)
+
+    def test_single_side_effect1(self):
+        kit, g = [], 0
+
+        def raiser(val):
+            nonlocal g
+            g += 1
+            if g < 3:
+                raise TypeError("it's too early")
+            return val
+
+        def side_effect(val):
+            nonlocal kit
+            kit.append("side_effect")
+            return val ** 2
+
+        resilient = of(10).chain(lambda v: of(v * 2).chain(side_effect).chain(raiser)).chain(lambda v: v - 100)
+        rp = insist(resilient, 3)
+        self.assertEqual(rp.result, 300)
+        self.assertEqual(kit, ["side_effect"])
 
 
 if __name__ == '__main__':

@@ -59,4 +59,4 @@ class Report(Generic[A, B]):
         return self._chain_from_failure is None
 
     def __repr__(self):
-        return f'Report(result={self._result}, restored={self._chain_from_failure}, faulty={self._faulty})'
+        return f'Report(result={self._result}, chain_from_failure={self._chain_from_failure}, faulty={self._faulty})'

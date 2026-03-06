@@ -110,23 +110,28 @@ class _ResilientSync(Generic[A]):
         return ResilientSyncCont(_ensurer(fn), past=self)
 
 
-def _execute(value: A, fn: Callable[[A], B]) -> Union[B, Uncaught[Exc]]:
-    """
-        Execute function from chain with catching errors.
-        MonadError is not suppressed.
-        :raises MonadError: panics on coroutine function
-    """
-    panics.on_coroutine(fn, monad_name='ResilientSync', method='run')
-    try:
-        result = fn(value)
-        if isinstance(result, (ResilientSyncPrime, ResilientSyncCont)):
-            report = result.run()   # do not restore internal chains
-            result = report.result
-        return result
-    except Exception as exc:
-        if isinstance(exc, MonadError):
-            raise exc
-        return Uncaught(exc)
+class ResilientSyncPrime(_ResilientSync[A]):
+    """Use only for typing purposes. To create monads, use the 'of' and 'unit' functions and chained methods"""
+
+    def __init__(self, effect: Callable[[], A]):
+        super().__init__(effect)
+
+    @property
+    def effect(self) -> Callable[[], A]:
+        return self._effect
+
+    def run(self, rebuild: bool = False) -> Report[Union[A, Uncaught], Optional['ResilientSyncPrime']]:
+        """
+            Starts the chain
+            :raises MonadError: panics on coroutine function
+        """
+        try:
+            result = self._effect()
+        except Exception as exc:
+            result = Uncaught(exc)
+        if rebuild and (isinstance(result, Uncaught) or TUtils.is_bad(result)):
+            return Report(result, ResilientSyncPrime(self._effect), self._effect)
+        return Report(result, chain_from_failure=None, faulty=None)
 
 
 def _unwind(persist: 'ResilientSyncCont') -> Tuple['ResilientSyncPrime', List[Callable]]:
@@ -144,34 +149,27 @@ def _unwind(persist: 'ResilientSyncCont') -> Tuple['ResilientSyncPrime', List[Ca
     )
 
 
-_SyncSub = TypeVar('_SyncSub', bound=_ResilientSync)
-
-
-class ResilientSyncPrime(_ResilientSync[A]):
-    """Use only for typing purposes. To create monads, use the 'of' and 'unit' functions and chained methods"""
-
-    def __init__(self, effect: Callable[[], A]):
-        super().__init__(effect)
-
-    @property
-    def effect(self) -> Callable[[], A]:
-        return self._effect
-
-    def run(self, rebuild: bool = False) -> Report[Union[A, Uncaught], Optional['ResilientSyncPrime']]:
-        """
-            Starts the chain
-            :raises MonadError: panics on coroutine function
-        """
-        result = _execute(None, lambda _: self._effect())   # lambda for uniformity with '_execute' signature
-        restored, faulty = None, None
-        if rebuild and (isinstance(result, Uncaught) or TUtils.is_bad(result)):
-            restored, faulty = ResilientSyncPrime(self._effect), self._effect
-        return Report(result, chain_from_failure=restored, faulty=faulty)
+def _execute(value: A, fn: Callable[[A], B]) -> Union[B, Uncaught[Exc]]:
+    """
+        Execute function from chain with catching errors.
+        MonadError is not suppressed.
+        :raises MonadError: panics on coroutine function
+    """
+    panics.on_coroutine(fn, monad_name='ResilientSync', method='run')
+    try:
+        return fn(value)
+    except Exception as exc:
+        if isinstance(exc, MonadError):
+            raise exc
+        return Uncaught(exc)
 
 
 def _make_effect(val: A) -> Callable[[], A]:
     """To prevent lambda from updating the reference when it is reassigned  in a loop"""
     return lambda: val
+
+
+_SyncSub = TypeVar('_SyncSub', bound=_ResilientSync)
 
 
 class ResilientSyncCont(_ResilientSync[B]):
@@ -199,11 +197,16 @@ class ResilientSyncCont(_ResilientSync[B]):
         persist_prime, cons = _unwind(persist=self)
         report_prime = persist_prime.run(rebuild=rebuild)
         result, restored, faulty = report_prime.result, report_prime.chain_from_failure, report_prime.faulty
-
         for i in range(len(cons) - 1, -1, -1):
-            result_new = _execute(result, cons[i])
+            result_new, restored_new, faulty_new = _execute(result, cons[i]), None, None
+            if isinstance(result_new, (ResilientSyncPrime, ResilientSyncCont)):
+                rpt = result_new.run(rebuild=rebuild)
+                result_new, restored_new, faulty_new = rpt.result, rpt.chain_from_failure, rpt.faulty
+
             if rebuild:
-                if isinstance(result_new, Uncaught) or TUtils.is_bad(result_new):
+                if restored_new:
+                    restored, faulty = restored_new, faulty_new  # if we're in this branch, it's the first failure!
+                elif isinstance(result_new, Uncaught) or TUtils.is_bad(result_new):
                     if restored is None:
                         prime = ResilientSyncPrime(_make_effect(result))
                         restored, faulty = ResilientSyncCont(cons[i], past=prime), _extract_from_closure(cons[i])
