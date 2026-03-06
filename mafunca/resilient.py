@@ -235,7 +235,7 @@ class ResilientCont(_Resilient[B]):
             self,
             rebuild: bool = False,
             delay: Optional[Union[int, float]] = None
-    ) -> Report[Union[A, Uncaught], Optional['ResilientPrime']]:
+    ) -> Report[Union[A, Uncaught], Optional['ResilientCont']]:
         """
             Async - starts the chain.
             :raises TimeoutError: delay is not None and the waiting time has been exceeded.
