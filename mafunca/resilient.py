@@ -120,6 +120,8 @@ class ResilientPrime(_Resilient[A]):
     async def _launch(self, rebuild: bool = False) -> Report[Union[A, Uncaught[Exc]], Optional['ResilientPrime']]:
         try:
             result = await _maybe_await(self._effect())
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
             result = Uncaught(exc)
         if rebuild and (isinstance(result, Uncaught) or TUtils.is_bad(result)):
@@ -168,6 +170,8 @@ async def _execute(value: A, fn: Callable):
     """
     try:
         return await fn(value)
+    except asyncio.CancelledError:
+        raise
     except Exception as exc:
         if isinstance(exc, MonadError):
             raise exc
