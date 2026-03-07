@@ -110,41 +110,6 @@ class _Resilient(Generic[A]):
         return ResilientCont(_ensurer(fn), past=self)
 
 
-async def _execute(value: A, fn: Callable):
-    """
-        Execute function from chain with catching errors.
-        MonadError is not suppressed.
-    """
-    try:
-        result = await fn(value)
-        if isinstance(result, (ResilientPrime, ResilientCont)):
-            report = await result.run()   # do not restore internal chains
-            result = report.result
-        return result
-    except Exception as exc:
-        if isinstance(exc, MonadError):
-            raise exc
-        return Uncaught(exc)
-
-
-def _unwind(persist: 'ResilientCont') -> Tuple['ResilientPrime', List[Callable]]:
-    """Unwinding the chain to the first effect"""
-    current, effects = persist, []
-    while isinstance(current, ResilientCont):
-        effects.append(current.effect)
-        current = current.past
-    if isinstance(current, ResilientPrime):
-        return current, effects
-    raise MonadError(
-        monad='Resilient',
-        method='chain starter method',
-        message="Violation of the usage contract - the first element in the chain must be a 'ResilientPrime' entity"
-    )
-
-
-_Sub = TypeVar('_Sub', bound=_Resilient)
-
-
 class ResilientPrime(_Resilient[A]):
     """Use only for typing purposes. To create monads, use the 'of' and 'unit' functions and chained methods"""
 
@@ -156,11 +121,13 @@ class ResilientPrime(_Resilient[A]):
         return self._effect
 
     async def _launch(self, rebuild: bool = False) -> Report[Union[A, Uncaught[Exc]], Optional['ResilientPrime']]:
-        result = await _execute(self._effect(), _maybe_await)
-        restored, faulty = None, None
+        try:
+            result = await _maybe_await(self._effect())
+        except Exception as exc:
+            result = Uncaught(exc)
         if rebuild and (isinstance(result, Uncaught) or TUtils.is_bad(result)):
-            restored, faulty = ResilientPrime(self._effect), self._effect
-        return Report(result, chain_from_failure=restored, faulty=faulty)
+            return Report(result, ResilientPrime(self._effect), self._effect, None)
+        return Report(result, chain_from_failure=None, faulty=None, last_success=None)
 
     async def run(
             self,
@@ -182,9 +149,40 @@ class ResilientPrime(_Resilient[A]):
         return asyncio.create_task(self._launch(rebuild=rebuild))
 
 
+def _unwind(persist: 'ResilientCont') -> Tuple['ResilientPrime', List[Callable]]:
+    """Unwinding the chain to the first effect"""
+    current, effects = persist, []
+    while isinstance(current, ResilientCont):
+        effects.append(current.effect)
+        current = current.past
+    if isinstance(current, ResilientPrime):
+        return current, effects
+    raise MonadError(
+        monad='Resilient',
+        method='chain starter method',
+        message="Violation of the usage contract - the first element in the chain must be a 'ResilientPrime' entity"
+    )
+
+
+async def _execute(value: A, fn: Callable):
+    """
+        Execute function from chain with catching errors.
+        MonadError is not suppressed.
+    """
+    try:
+        return await fn(value)
+    except Exception as exc:
+        if isinstance(exc, MonadError):
+            raise exc
+        return Uncaught(exc)
+
+
 def _make_effect(val: A) -> Callable[[], A]:
     """To prevent lambda from updating the reference when it is reassigned  in a loop"""
     return lambda: val
+
+
+_Sub = TypeVar('_Sub', bound=_Resilient)
 
 
 class ResilientCont(_Resilient[B]):
@@ -211,25 +209,33 @@ class ResilientCont(_Resilient[B]):
         """
         persist_prime, cons = _unwind(persist=self)
         report_prime = await persist_prime.run(rebuild=rebuild)
-        result, restored, faulty = report_prime.result, report_prime.chain_from_failure, report_prime.faulty
+        result, restored = report_prime.result, report_prime.chain_from_failure
+        faulty, last_success = report_prime.faulty, report_prime.last_success
 
         for i in range(len(cons) - 1, -1, -1):
-            result_new = await _execute(result, cons[i])
+            result_new, restored_new = await _execute(result, cons[i]), None
+            faulty_new, last_success_new = None, None
+            if isinstance(result_new, (ResilientPrime, ResilientCont)):
+                rpt = await result_new.run(rebuild=rebuild)
+                result_new, restored_new = rpt.result, rpt.chain_from_failure
+                faulty_new, last_success_new = rpt.faulty, rpt.last_success
+
             if rebuild:
-                if isinstance(result_new, Uncaught) or TUtils.is_bad(result_new):
+                if restored_new:
+                    # if we're in this branch, it's the first failure!
+                    restored, faulty, last_success = restored_new, faulty_new, last_success_new
+                elif isinstance(result_new, Uncaught) or TUtils.is_bad(result_new):
                     if restored is None:
                         prime = ResilientPrime(_make_effect(result))
                         restored, faulty = ResilientCont(cons[i], past=prime), _extract_from_closure(cons[i])
+                        last_success = result
                     else:
                         restored = ResilientCont(cons[i], past=restored)
                 else:
-                    restored, faulty = None, None
+                    restored, faulty, last_success = None, None, result_new
             result = result_new
 
-        if isinstance(result, Uncaught) or TUtils.is_bad(result):
-            return Report(result, chain_from_failure=restored, faulty=faulty)
-        else:
-            return Report(result, chain_from_failure=None, faulty=None)
+        return Report(result, chain_from_failure=restored, faulty=faulty, last_success=last_success)
 
     async def run(
             self,
@@ -283,7 +289,8 @@ async def insist(
         Makes 'attempts' with 'delay_for_attempt' to execute a 'resilient' chain
         with 'pause_between' intervals between them
     """
-    chain, report = resilient, Report(None, resilient, None)
+    chain, report = resilient, Report(None, resilient, None, None)
+
     for _ in range(attempts):
         if delay_for_attempt is None:
             report = await chain.run(rebuild=True)
@@ -298,4 +305,7 @@ async def insist(
         if not report.is_ok:
             chain = report.chain_from_failure
             await asyncio.sleep(pause_between)
+            continue
+        return report
+
     return report

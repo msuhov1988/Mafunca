@@ -35,12 +35,13 @@ B = TypeVar('B')
 class Report(Generic[A, B]):
     """A container that contains the result, a shortened chain (optional) and a failure function (optional)"""
 
-    __slots__ = ('_result', '_chain_from_failure', '_faulty')
+    __slots__ = ('_result', '_chain_from_failure', '_faulty', '_last_success')
 
-    def __init__(self, result: A, chain_from_failure: B, faulty: Optional[Callable]):
+    def __init__(self, result: A, chain_from_failure: B, faulty: Optional[Callable], last_success):
         self._result = result
         self._chain_from_failure = chain_from_failure
         self._faulty = faulty
+        self._last_success = last_success
 
     @property
     def result(self) -> A:
@@ -55,8 +56,16 @@ class Report(Generic[A, B]):
         return self._faulty
 
     @property
+    def last_success(self):
+        return self._last_success
+
+    @property
     def is_ok(self) -> bool:
         return self._chain_from_failure is None
 
     def __repr__(self):
-        return f'Report(result={self._result}, chain_from_failure={self._chain_from_failure}, faulty={self._faulty})'
+        result = f'result={self._result}'
+        chain = f'chain_from_failure={self._chain_from_failure}'
+        faulty = f'faulty={self._faulty}'
+        last_success = f'last_success={self._last_success}'
+        return f'Report({result}, {chain}, {faulty}, {last_success})'

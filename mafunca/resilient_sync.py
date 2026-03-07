@@ -130,8 +130,8 @@ class ResilientSyncPrime(_ResilientSync[A]):
         except Exception as exc:
             result = Uncaught(exc)
         if rebuild and (isinstance(result, Uncaught) or TUtils.is_bad(result)):
-            return Report(result, ResilientSyncPrime(self._effect), self._effect)
-        return Report(result, chain_from_failure=None, faulty=None)
+            return Report(result, ResilientSyncPrime(self._effect), self._effect, None)
+        return Report(result, chain_from_failure=None, faulty=None, last_success=None)
 
 
 def _unwind(persist: 'ResilientSyncCont') -> Tuple['ResilientSyncPrime', List[Callable]]:
@@ -196,30 +196,33 @@ class ResilientSyncCont(_ResilientSync[B]):
         """
         persist_prime, cons = _unwind(persist=self)
         report_prime = persist_prime.run(rebuild=rebuild)
-        result, restored, faulty = report_prime.result, report_prime.chain_from_failure, report_prime.faulty
+        result, restored = report_prime.result, report_prime.chain_from_failure
+        faulty, last_success = report_prime.faulty, report_prime.last_success
+
         for i in range(len(cons) - 1, -1, -1):
-            result_new, restored_new, faulty_new = _execute(result, cons[i]), None, None
+            result_new, restored_new = _execute(result, cons[i]), None
+            faulty_new, last_success_new = None, None
             if isinstance(result_new, (ResilientSyncPrime, ResilientSyncCont)):
                 rpt = result_new.run(rebuild=rebuild)
-                result_new, restored_new, faulty_new = rpt.result, rpt.chain_from_failure, rpt.faulty
+                result_new, restored_new = rpt.result, rpt.chain_from_failure
+                faulty_new, last_success_new = rpt.faulty, rpt.last_success
 
             if rebuild:
                 if restored_new:
-                    restored, faulty = restored_new, faulty_new  # if we're in this branch, it's the first failure!
+                    # if we're in this branch, it's the first failure!
+                    restored, faulty, last_success = restored_new, faulty_new, last_success_new
                 elif isinstance(result_new, Uncaught) or TUtils.is_bad(result_new):
                     if restored is None:
                         prime = ResilientSyncPrime(_make_effect(result))
                         restored, faulty = ResilientSyncCont(cons[i], past=prime), _extract_from_closure(cons[i])
+                        last_success = result
                     else:
                         restored = ResilientSyncCont(cons[i], past=restored)
                 else:
-                    restored, faulty = None, None
+                    restored, faulty, last_success = None, None, result_new
             result = result_new
 
-        if isinstance(result, Uncaught) or TUtils.is_bad(result):
-            return Report(result, chain_from_failure=restored, faulty=faulty)
-        else:
-            return Report(result, chain_from_failure=None, faulty=None)
+        return Report(result, chain_from_failure=restored, faulty=faulty, last_success=last_success)
 
 
 def of(value: A) -> ResilientSyncPrime[A]:
@@ -248,10 +251,14 @@ def insist(
         pause_between: Union[int, float] = 0
 ) -> Report[Union[A, Uncaught[Exc]], Optional['ResilientSyncCont']]:
     """Makes 'attempts' to execute a 'resilient' chain with 'pause_between' intervals between them"""
-    chain, report = resilient, Report(None, None, None)
+    chain, report = resilient, Report(None, None, None, None)
+
     for _ in range(attempts):
         report = chain.run(rebuild=True)
         if not report.is_ok:
             chain = report.chain_from_failure
             sleep(pause_between)
+            continue
+        return report
+
     return report

@@ -4,9 +4,9 @@
 
 # Some useful things from the world of functional programming for python
 
-### The goal is not to cover "everything" about functional programming, but to provide some useful things in the most practical way (at least from the author's perspective).
-### The library is minimalistic and has no dependencies. 
-### Provides advanced, feature-rich currying decorators.
+### The goal is not to cover "everything" about functional programming, but to provide some useful things in the most practical way (at least from the author's perspective)
+### The library is minimalistic and has no dependencies 
+### Provides advanced, feature-rich currying decorators
 ### Resilient effects
 ### Emphasizes strict adherence to contracts and a clear separation between synchronous and asynchronous operations.
 
@@ -362,11 +362,11 @@ from mafunca.eff import Eff
 Eff.of(value).map(func1).map(func2).map(func3)...
 ```
 It is quite logical to demand further improvements from such a monad:
-- instead of just returning a 'bad' **Triple** entity, it should also return a reference to the failed function
+- instead of just returning a 'bad' **Triple** entity, it should also return a reference to the failed function and the last successful result
 - let it return a **shortened chain from the point of failure** so that it can be restarted
 - let it **catch all errors** by returning a **special object** that indicates that this is an exception that we did not catch. For such an object, let it:
     - also makes a short circuit
-    - it also returns a reference to the failed function and a **shortened chain from the point of failure**
+    - also returns a reference to the failed function, last successful result and a **shortened chain from the point of failure**
 
 All of this can be useful, given that effectful monads often contain functions that make requests to external systems.  
 In such scenarios, it is not uncommon for errors to be caused by external factors rather than our code, and they may be temporary in nature.  
@@ -405,11 +405,13 @@ from mafunca.common.resilient_support import Report, Uncaught
 # somewhere inside the asynchronous context ...
 
 # normal start, as in a classic monad
+# no additional actions in this case
 report1 = await resilient1.run()
 isinstance(report1, Report)      # True
 report1.result                   # direct result or Uncaught object
 report1.chain_from_failure       # None
 report1.faulty                   # None
+report1.last_success             # None
 report1.is_ok                    # True
 
 # restore the shortened chain(on failure) and identify the source of the failure
@@ -419,6 +421,7 @@ isinstance(report2, Report)      # True
 report2.result                   # direct result or Uncaught object
 report2.chain_from_failure       # restored chain or None
 report2.faulty                   # callable or None (source of the failure)
+report2.last_success             # last successful or report2.result on normal completion
 report2.is_ok                    # False or True (was there a failure or not)
 
 # an object that contains an exception that was not caught by user code
@@ -479,9 +482,12 @@ fail = malfunction()
 resilient = of(0).chain(step_one).chain(step_two).chain(fail).chain(step_final)
 
 report = resilient.run(rebuild=True)
+report.last_success   # 2
 report = report.chain_from_failure.run(rebuild=True)
+report.last_success   # 2
 report = report.chain_from_failure.run(rebuild=True)
-print(report.result, report.is_ok)
+report.last_success   # (4,)
+print(report.result, report.last_success, report.is_ok)
 ```
 Console output:
 ```
@@ -490,7 +496,7 @@ Console output:
 one
 two
 final
-(4,) True
+(4,) (4,) True
 ```
 Or even shorter:
 ```python
@@ -499,9 +505,8 @@ report = insist(resilient, attempts=3)
 ```
 
 ### Resilient limitations
-- Of course, you must ensure that the shortened chain is safe to run. Your functions should not leave any "traces" if an error occurs, for example.
-- cannot restore nested chains (yet)
-- Be careful with the **.ensure** method - it is always executed. This means that it will also be executed in the shortened chain if it gets there.
+- Of course, you must ensure that the shortened chain is safe to run. Your functions must be idempotent and should not leave any "traces" if an error occurs, for example.
+- Be careful with the **.ensure** method - it is always executed. This means that it will also be executed in the shortened chain again  if it enters it.
 
 ## Currying
 ### Description of currying

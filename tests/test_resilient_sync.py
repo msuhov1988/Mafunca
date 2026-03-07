@@ -14,6 +14,7 @@ class TestResilientSync(unittest.TestCase):
         self.assertEqual(rp.chain_from_failure, None)
         self.assertEqual(rp.faulty, None)
         self.assertEqual(rp.result, 225)
+        self.assertEqual(rp.last_success, None)
 
     def test_ordinary_chains2(self):
         rp = of(10).chain(lambda v: unit(lambda: v + 5)).chain(lambda v: v ** 2).run()
@@ -21,12 +22,15 @@ class TestResilientSync(unittest.TestCase):
         self.assertEqual(rp.chain_from_failure, None)
         self.assertEqual(rp.faulty, None)
         self.assertEqual(rp.result, 225)
+        self.assertEqual(rp.last_success, None)
 
     def test_short_circuit(self):
         rp = of(Left('error')).chain(lambda v: unit(lambda: v + 5)).run()
         self.assertEqual(rp.result.unfold(), 'error')
+        self.assertEqual(rp.last_success, None)
         rp = of(10).chain(lambda _: of(Nothing())).chain(lambda v: v ** 2).run()
         self.assertIsInstance(rp.result, Nothing)
+        self.assertEqual(rp.last_success, None)
 
     def test_catching_errors_uncaught(self):
         def raiser():
@@ -173,10 +177,13 @@ class TestResilientSync(unittest.TestCase):
         resilient = of(10).chain(plus)
         rp = resilient.run(rebuild=True)
         self.assertIsInstance(rp.result, Uncaught)
+        self.assertEqual(rp.last_success, 10)
         rp = rp.chain_from_failure.run(rebuild=True)
         self.assertIsInstance(rp.result, Uncaught)
+        self.assertEqual(rp.last_success, 10)
         rp = rp.chain_from_failure.run(rebuild=True)
         self.assertEqual(rp.result, 100)
+        self.assertEqual(rp.last_success, 100)
 
         g = -2
         self.assertEqual(insist(resilient, attempts=5).result, 100)
@@ -194,10 +201,13 @@ class TestResilientSync(unittest.TestCase):
         resilient = of(10).chain(plus)
         rp = resilient.run(rebuild=True)
         self.assertIsInstance(rp.result, Nothing)
+        self.assertEqual(rp.last_success, 10)
         rp = rp.chain_from_failure.run(rebuild=True)
         self.assertIsInstance(rp.result, Nothing)
+        self.assertEqual(rp.last_success, 10)
         rp = rp.chain_from_failure.run(rebuild=True)
         self.assertEqual(rp.result, 100)
+        self.assertEqual(rp.last_success, 100)
 
         g = -2
         self.assertEqual(insist(resilient, attempts=5).result, 100)
@@ -214,6 +224,7 @@ class TestResilientSync(unittest.TestCase):
 
         resilient = of(10).chain(plus).catch(lambda _: 0)
         self.assertEqual(resilient.run(rebuild=True).result, 0)
+        self.assertEqual(resilient.run(rebuild=True).last_success, 0)
 
         g = 0
         self.assertEqual(insist(resilient, attempts=1).result, 0)
@@ -259,10 +270,13 @@ class TestResilientSync(unittest.TestCase):
         resilient = of(10).chain(lambda v: v + 10).chain(inner).chain(lambda v: v + 1)
         rp = resilient.run(rebuild=True)
         self.assertIsInstance(rp.result, Uncaught)
+        self.assertEqual(rp.last_success, 20)
         rp = rp.chain_from_failure.run(rebuild=True)
         self.assertIsInstance(rp.result, Uncaught)
+        self.assertEqual(rp.last_success, 20)
         rp = rp.chain_from_failure.run(rebuild=True)
         self.assertEqual(rp.result, 402)
+        self.assertEqual(rp.last_success, 402)
 
         g = -2
         self.assertEqual(insist(resilient, attempts=5).result, 402)
@@ -283,10 +297,13 @@ class TestResilientSync(unittest.TestCase):
         resilient = of(10).chain(lambda v: v + 10).chain(inner).chain(lambda v: v + 1)
         rp = resilient.run(rebuild=True)
         self.assertIsInstance(rp.result, Nothing)
+        self.assertEqual(rp.last_success, 20)
         rp = rp.chain_from_failure.run(rebuild=True)
         self.assertIsInstance(rp.result, Nothing)
+        self.assertEqual(rp.last_success, 20)
         rp = rp.chain_from_failure.run(rebuild=True)
         self.assertEqual(rp.result, 402)
+        self.assertEqual(rp.last_success, 402)
 
         g = -2
         self.assertEqual(insist(resilient, attempts=5).result, 402)
@@ -307,9 +324,11 @@ class TestResilientSync(unittest.TestCase):
         resilient = of(10).chain(lambda v: v + 10).chain(inner).chain(lambda v: v + 1)
         rp = resilient.run(rebuild=True)
         self.assertEqual(rp.result, 1)
+        self.assertEqual(rp.last_success, 1)
 
         g = 0
         self.assertEqual(insist(resilient, attempts=1).result, 1)
+        self.assertEqual(insist(resilient, attempts=1).last_success, 1)
 
     def test_retry_nested_ensure(self):
         a, b = 0, 0
@@ -348,6 +367,7 @@ class TestResilientSync(unittest.TestCase):
 
         rp = of(10).chain(failure).chain(lambda v: v + 1).run(rebuild=True)
         self.assertIs(rp.faulty, failure)
+        self.assertEqual(rp.last_success, 10)
 
         rp = unit(failure_prime).chain(failure).run(rebuild=True)
         self.assertIs(rp.faulty, failure_prime)
@@ -361,6 +381,7 @@ class TestResilientSync(unittest.TestCase):
 
         rp = of(10).chain(failure1).chain(lambda v: v + 1).catch(lambda _: 0).chain(failure2).run(rebuild=True)
         self.assertIs(rp.faulty, failure2)
+        self.assertEqual(rp.last_success, 0)
 
     def test_single_side_effect1(self):
         kit, g = [], 0
@@ -378,9 +399,58 @@ class TestResilientSync(unittest.TestCase):
             return val ** 2
 
         resilient = of(10).chain(lambda v: of(v * 2).chain(side_effect).chain(raiser)).chain(lambda v: v - 100)
-        rp = insist(resilient, 3)
+        rp = insist(resilient, 1)
+        self.assertEqual(rp.last_success, 400)
+        rp = insist(rp.chain_from_failure, 2)
         self.assertEqual(rp.result, 300)
+        self.assertEqual(rp.last_success, 300)
         self.assertEqual(kit, ["side_effect"])
+
+    def test_single_side_effect2(self):
+        kit, g = [], 0
+
+        def side_effect_level2(val):
+            nonlocal kit
+            kit.append(2)
+            return val + 1
+
+        def raiser_level2(val):
+            nonlocal g
+            g += 1
+            if g < 3:
+                raise TypeError("it's too early")
+            return val + 1
+
+        def side_effect_level1(val):
+            nonlocal kit
+            kit.append(1)
+            return val + 1
+
+        def raiser_level1(val):
+            nonlocal g
+            g += 1
+            if g < 5:
+                raise TypeError("it's too early")
+            return val + 1
+
+        def side_effect_level0(val):
+            nonlocal kit
+            kit.append(0)
+            return val ** 2
+
+        def level2(val):
+            return unit(lambda: val + 1).chain(side_effect_level2).chain(raiser_level2).chain(lambda v: v)
+
+        def level1(val):
+            return unit(lambda: val + 1).chain(level2).chain(side_effect_level1).chain(raiser_level1).chain(lambda v: v)
+
+        resilient = of(0).chain(level1).chain(side_effect_level0)
+        rp = insist(resilient, 3)
+        self.assertEqual(rp.last_success, 5)
+        rp = insist(rp.chain_from_failure, 10)
+        self.assertEqual(rp.result, 36)
+        self.assertEqual(rp.last_success, 36)
+        self.assertEqual(kit, [2, 1, 0])
 
 
 if __name__ == '__main__':

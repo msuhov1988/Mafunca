@@ -22,6 +22,7 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rp.chain_from_failure, None)
         self.assertEqual(rp.faulty, None)
         self.assertEqual(rp.result, 225)
+        self.assertEqual(rp.last_success, None)
 
     async def test_ordinary_chains2(self):
         rp = await of(0).chain(lambda v: unit(get_five)).chain(plus_five).run()
@@ -29,12 +30,15 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rp.chain_from_failure, None)
         self.assertEqual(rp.faulty, None)
         self.assertEqual(rp.result, 10)
+        self.assertEqual(rp.last_success, None)
 
     async def test_short_circuit(self):
         rp = await of(Left('error')).chain(plus_five).run()
         self.assertEqual(rp.result.unfold(), 'error')
+        self.assertEqual(rp.last_success, None)
         rp = await unit(get_five).chain(lambda _: of(Nothing())).chain(lambda v: v ** 2).run()
         self.assertIsInstance(rp.result, Nothing)
+        self.assertEqual(rp.last_success, None)
 
     async def test_catching_errors_uncaught(self):
         async def raiser():
@@ -170,14 +174,18 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
         resilient = of(10).chain(plus)
         rp = await resilient.run(rebuild=True)
         self.assertIsInstance(rp.result, Uncaught)
+        self.assertEqual(rp.last_success, 10)
         rp = await rp.chain_from_failure.run(rebuild=True)
         self.assertIsInstance(rp.result, Uncaught)
+        self.assertEqual(rp.last_success, 10)
         rp = await rp.chain_from_failure.run(rebuild=True)
         self.assertEqual(rp.result, 100)
+        self.assertEqual(rp.last_success, 100)
 
         g = -2
         rp = await insist(resilient, attempts=5)
         self.assertEqual(rp.result, 100)
+        self.assertEqual(rp.last_success, 100)
 
     async def test_retry_simple_short_circuit(self):
         g = 0
@@ -192,14 +200,18 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
         resilient = of(10).chain(plus)
         rp = await resilient.run(rebuild=True)
         self.assertIsInstance(rp.result, Nothing)
+        self.assertEqual(rp.last_success, 10)
         rp = await rp.chain_from_failure.run(rebuild=True)
         self.assertIsInstance(rp.result, Nothing)
+        self.assertEqual(rp.last_success, 10)
         rp = await rp.chain_from_failure.run(rebuild=True)
         self.assertEqual(rp.result, 100)
+        self.assertEqual(rp.last_success, 100)
 
         g = -2
         rp = await insist(resilient, attempts=5)
         self.assertEqual(rp.result, 100)
+        self.assertEqual(rp.last_success, 100)
 
     async def test_retry_simple_caught(self):
         g = 0
@@ -214,10 +226,12 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
         resilient = of(10).chain(plus).catch(lambda _: 0)
         rp = await resilient.run(rebuild=True)
         self.assertEqual(rp.result, 0)
+        self.assertEqual(rp.last_success, 0)
 
         g = 0
         rp = await insist(resilient, attempts=1)
         self.assertEqual(rp.result, 0)
+        self.assertEqual(rp.last_success, 0)
 
     async def test_retry_simple_ensure(self):
         a, b = 0, 0
@@ -261,14 +275,18 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
         resilient = of(5).chain(plus_five).chain(inner).chain(lambda v: v + 1)
         rp = await resilient.run(rebuild=True)
         self.assertIsInstance(rp.result, Uncaught)
+        self.assertEqual(rp.last_success, 10)
         rp = await rp.chain_from_failure.run(rebuild=True)
         self.assertIsInstance(rp.result, Uncaught)
+        self.assertEqual(rp.last_success, 10)
         rp = await rp.chain_from_failure.run(rebuild=True)
         self.assertEqual(rp.result, 102)
+        self.assertEqual(rp.last_success, 102)
 
         g = -2
         rp = await insist(resilient, attempts=5)
         self.assertEqual(rp.result, 102)
+        self.assertEqual(rp.last_success, 102)
 
     async def test_retry_nested_short_circuit(self):
         g = 0
@@ -286,14 +304,18 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
         resilient = of(5).chain(plus_five).chain(inner).chain(lambda v: v + 1)
         rp = await resilient.run(rebuild=True)
         self.assertIsInstance(rp.result, Nothing)
+        self.assertEqual(rp.last_success, 10)
         rp = await rp.chain_from_failure.run(rebuild=True)
         self.assertIsInstance(rp.result, Nothing)
+        self.assertEqual(rp.last_success, 10)
         rp = await rp.chain_from_failure.run(rebuild=True)
         self.assertEqual(rp.result, 102)
+        self.assertEqual(rp.last_success, 102)
 
         g = -2
         rp = await insist(resilient, attempts=5)
         self.assertEqual(rp.result, 102)
+        self.assertEqual(rp.last_success, 102)
 
     async def test_retry_nested_caught(self):
         g = 0
@@ -311,10 +333,12 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
         resilient = of(10).chain(plus_five).chain(inner).chain(lambda v: v + 1)
         rp = await resilient.run(rebuild=True)
         self.assertEqual(rp.result, 1)
+        self.assertEqual(rp.last_success, 1)
 
         g = 0
         rp = await insist(resilient, attempts=1)
         self.assertEqual(rp.result, 1)
+        self.assertEqual(rp.last_success, 1)
 
     async def test_retry_nested_ensure(self):
         a, b = 0, 0
@@ -366,6 +390,7 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
 
         rp = await of(10).chain(failure).chain(lambda v: v + 1).run(rebuild=True)
         self.assertIs(rp.faulty, failure)
+        self.assertEqual(rp.last_success, 10)
 
         rp = await unit(failure_prime).chain(failure).run(rebuild=True)
         self.assertIs(rp.faulty, failure_prime)
@@ -379,6 +404,76 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
 
         rp = await of(10).chain(failure1).chain(lambda v: v + 1).catch(lambda _: 0).chain(failure2).run(rebuild=True)
         self.assertIs(rp.faulty, failure2)
+        self.assertEqual(rp.last_success, 0)
+
+    async def test_single_side_effect1(self):
+        kit, g = [], 0
+
+        async def raiser(val):
+            nonlocal g
+            g += 1
+            if g < 3:
+                raise TypeError("it's too early")
+            return val
+
+        async def side_effect(val):
+            nonlocal kit
+            kit.append("side_effect")
+            return val ** 2
+
+        resilient = of(10).chain(lambda v: of(v * 2).chain(side_effect).chain(raiser)).chain(lambda v: v - 100)
+        rp = await insist(resilient, 1)
+        self.assertEqual(rp.last_success, 400)
+        rp = await insist(rp.chain_from_failure, 2)
+        self.assertEqual(rp.result, 300)
+        self.assertEqual(rp.last_success, 300)
+        self.assertEqual(kit, ["side_effect"])
+
+    async def test_single_side_effect2(self):
+        kit, g = [], 0
+
+        async def side_effect_level2(val):
+            nonlocal kit
+            kit.append(2)
+            return val + 1
+
+        async def raiser_level2(val):
+            nonlocal g
+            g += 1
+            if g < 3:
+                raise TypeError("it's too early")
+            return val + 1
+
+        async def side_effect_level1(val):
+            nonlocal kit
+            kit.append(1)
+            return val + 1
+
+        async def raiser_level1(val):
+            nonlocal g
+            g += 1
+            if g < 5:
+                raise TypeError("it's too early")
+            return val + 1
+
+        async def side_effect_level0(val):
+            nonlocal kit
+            kit.append(0)
+            return val ** 2
+
+        async def level2(val):
+            return unit(lambda: val + 1).chain(side_effect_level2).chain(raiser_level2).chain(lambda v: v)
+
+        async def level1(val):
+            return unit(lambda: val + 1).chain(level2).chain(side_effect_level1).chain(raiser_level1).chain(lambda v: v)
+
+        resilient = of(0).chain(level1).chain(side_effect_level0)
+        rp = await insist(resilient, 3)
+        self.assertEqual(rp.last_success, 5)
+        rp = await insist(rp.chain_from_failure, 10)
+        self.assertEqual(rp.result, 36)
+        self.assertEqual(rp.last_success, 36)
+        self.assertEqual(kit, [2, 1, 0])
 
 
 if __name__ == '__main__':
