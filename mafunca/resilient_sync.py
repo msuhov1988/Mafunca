@@ -27,31 +27,32 @@ def _continuer(fn: Callable, bad_evaluator: Callable[..., bool]) -> Callable:
         With short circuits on 'Uncaught' and custom 'bad' entities.
     """
     def _continuer_inner(arg):
-        setattr(_continuer_inner, _ORIGIN_LINK, fn)
         if isinstance(arg, Uncaught) or bad_evaluator(arg):
             return arg
         return fn(arg)
 
+    setattr(_continuer_inner, _ORIGIN_LINK, fn)
     return _continuer_inner
 
 
 def _catcher(fn: Callable) -> Callable:
     """Special sync closure for catching errors"""
     def _catcher_inner(arg):
-        setattr(_catcher_inner, _ORIGIN_LINK, fn)
         if isinstance(arg, Uncaught):
             return fn(arg.error)
         return arg
 
+    setattr(_catcher_inner, _ORIGIN_LINK, fn)
     return _catcher_inner
 
 
 def _ensurer(fn: Callable) -> Callable:
     """A sync closure simulating finally"""
     def _ensurer_inner(arg):
-        setattr(_ensurer, _ORIGIN_LINK, fn)
         fn()
         return arg
+
+    setattr(_ensurer_inner, _ORIGIN_LINK, fn)
     return _ensurer_inner
 
 
