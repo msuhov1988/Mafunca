@@ -18,12 +18,16 @@ C = TypeVar('C')
 L = TypeVar('L')
 
 
+_ORIGIN_LINK = "__mafunca_resilient_origin__"
+
+
 def _continuer(fn: Callable, bad_evaluator: Callable[..., bool]) -> Callable:
     """
         Special sync closure for continuation through the standard chain method.
         With short circuits on 'Uncaught' and custom 'bad' entities.
     """
     def _continuer_inner(arg):
+        setattr(_continuer_inner, _ORIGIN_LINK, fn)
         if isinstance(arg, Uncaught) or bad_evaluator(arg):
             return arg
         return fn(arg)
@@ -34,6 +38,7 @@ def _continuer(fn: Callable, bad_evaluator: Callable[..., bool]) -> Callable:
 def _catcher(fn: Callable) -> Callable:
     """Special sync closure for catching errors"""
     def _catcher_inner(arg):
+        setattr(_catcher_inner, _ORIGIN_LINK, fn)
         if isinstance(arg, Uncaught):
             return fn(arg.error)
         return arg
@@ -44,6 +49,7 @@ def _catcher(fn: Callable) -> Callable:
 def _ensurer(fn: Callable) -> Callable:
     """A sync closure simulating finally"""
     def _ensurer_inner(arg):
+        setattr(_ensurer, _ORIGIN_LINK, fn)
         fn()
         return arg
     return _ensurer_inner
@@ -51,15 +57,10 @@ def _ensurer(fn: Callable) -> Callable:
 
 def _extract_from_closure(closure: Callable) -> Callable:
     """Extract origin function from closures like '_continuer' and etc"""
-    cells = getattr(closure, "__closure__", ())
-    if cells is None:
+    origin = getattr(closure, _ORIGIN_LINK, None)
+    if origin is None:
         return closure
-    if len(cells) == 2:
-        return cells[1].cell_contents
-    elif len(cells) == 1:
-        return cells[0].cell_contents
-    else:
-        return closure
+    return origin
 
 
 class _ResilientSync(Generic[A]):

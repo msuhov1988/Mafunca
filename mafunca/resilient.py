@@ -22,12 +22,16 @@ async def _maybe_await(obj: Union[Awaitable[A], A]) -> A:
     return await obj if inspect.isawaitable(obj) else obj
 
 
+_ORIGIN_LINK = "__mafunca_resilient_origin__"
+
+
 def _continuer(fn: Callable, bad_evaluator: Callable[..., bool]) -> Callable[..., Awaitable]:
     """
         Special async closure for continuation through the standard chain method.
         With short circuits on 'Uncaught' and custom 'bad' entities.
     """
     async def _continuer_inner(arg):
+        setattr(_continuer_inner, _ORIGIN_LINK, fn)
         if isinstance(arg, Uncaught) or bad_evaluator(arg):
             return arg
         return await _maybe_await(fn(arg))
@@ -38,6 +42,7 @@ def _continuer(fn: Callable, bad_evaluator: Callable[..., bool]) -> Callable[...
 def _catcher(fn: Callable) -> Callable[..., Awaitable]:
     """Special async closure for catching errors"""
     async def _catcher_inner(arg):
+        setattr(_catcher_inner, _ORIGIN_LINK, fn)
         if isinstance(arg, Uncaught):
             return await _maybe_await(fn(arg.error))
         return arg
@@ -48,6 +53,7 @@ def _catcher(fn: Callable) -> Callable[..., Awaitable]:
 def _ensurer(fn: Callable) -> Callable[..., Awaitable]:
     """An async closure simulating finally"""
     async def _ensurer_inner(arg):
+        setattr(_ensurer, _ORIGIN_LINK, fn)
         await _maybe_await(fn())
         return arg
     return _ensurer_inner
@@ -55,15 +61,10 @@ def _ensurer(fn: Callable) -> Callable[..., Awaitable]:
 
 def _extract_from_closure(closure: Callable) -> Callable:
     """Extract origin function from closures like '_continuer' and etc"""
-    cells = getattr(closure, "__closure__", ())
-    if cells is None:
+    origin = getattr(closure, _ORIGIN_LINK, None)
+    if origin is None:
         return closure
-    if len(cells) == 2:
-        return cells[1].cell_contents
-    elif len(cells) == 1:
-        return cells[0].cell_contents
-    else:
-        return closure
+    return origin
 
 
 class _Resilient(Generic[A]):
@@ -97,16 +98,11 @@ class _Resilient(Generic[A]):
     def catch(self, fn: Callable[[Exc], B]) -> 'ResilientCont[Union[A, B]]': pass
 
     def catch(self, fn):
-        """
-            Handles errors(Exception heirs) that occurred earlier in the chain.
-        """
+        """Handles errors(Exception heirs) that occurred earlier in the chain."""
         return ResilientCont(_catcher(fn), past=self)
 
     def ensure(self, fn: Callable[[], Union[Awaitable[None], None]]) -> 'ResilientCont[A]':
-        """
-            Guaranteed to execute the function-parameter, similar to try finally.
-            :raises MonadError: panics on coroutine function
-        """
+        """Guaranteed to execute the function-parameter, similar to try finally."""
         return ResilientCont(_ensurer(fn), past=self)
 
 
