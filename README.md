@@ -228,7 +228,7 @@ summa(Right(1), Nothing(), Right(3))   # Nothing()
 
 ### Additional functions
 ```python
-from mafunca.triple import TUtils
+from mafunca.triple import TUtils, Right, Left, Nothing
 from mafunca.triple import impure, is_impure
 
 # if you want to dive even deeper into FP
@@ -254,10 +254,15 @@ def raiser():
 raiser()                             # Left(TypeError)
 TUtils.from_try(lambda a: a + 1)(0)  # Right(1)
 
-TUtils.is_bad(Left("err"))  # True
-TUtils.is_bad(Nothing())    # True
-TUtils.is_bad(Right(1))     # False
-TUtils.is_bad(10)           # False
+TUtils.is_triple(10)           # False
+TUtils.is_triple(Right(1))     # True
+TUtils.is_triple(Left("err"))  # True
+TUtils.is_triple(Nothing())    # True
+
+TUtils.is_bad(Left("err"))     # True
+TUtils.is_bad(Nothing())       # True
+TUtils.is_bad(Right(1))        # False
+TUtils.is_bad(10)              # False
 
 TUtils.lift    # see previous chapter - an applicative example
 TUtils.closer  # see previous chapter - an applicative example

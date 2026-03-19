@@ -475,6 +475,11 @@ class TUtils:
         return result
 
     @staticmethod
+    def is_triple(value) -> bool:
+        """Check for Triple entity"""
+        return isinstance(value, Triple)
+
+    @staticmethod
     def is_bad(value) -> bool:
         """Check for bad Triple entity"""
         return isinstance(value, Triple) and not value.is_right
