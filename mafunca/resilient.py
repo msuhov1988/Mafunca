@@ -298,7 +298,7 @@ async def insist(
         else:
             try:
                 async with asyncio.timeout(delay=delay_for_attempt):
-                    return await chain.run(rebuild=True)
+                    report = await chain.run(rebuild=True)
             except TimeoutError:
                 await asyncio.sleep(pause_between)
                 continue
