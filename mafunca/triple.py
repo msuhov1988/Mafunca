@@ -106,14 +106,14 @@ class _Never:
 class Right(Triple, Generic[R]):
     """A branch for a value representing a successful result"""
 
-    __slots__ = ["__value"]
+    __slots__ = ["_value"]
 
     def __init__(self, value: R):
-        self.__value = value
+        self._value = value
 
     @property
     def value(self) -> R:
-        return self.__value
+        return self._value
 
     @property
     def is_right(self) -> bool:
@@ -129,7 +129,7 @@ class Right(Triple, Generic[R]):
            :raises MonadError: violation of the contract
         """
         _panic_on_bad_function(fn, monad=self.__class__.__name__, method='map')
-        result: V = fn(self.value)
+        result: V = fn(self._value)
         panics.on_monadic_result(result, fn=fn, monad=Triple, method='map')
         return Right(result)
 
@@ -146,7 +146,7 @@ class Right(Triple, Generic[R]):
             :raises MonadError: violation of the contract
         """
         _panic_on_bad_function(fn, monad=self.__class__.__name__, method='bind')
-        return fn(self.value)
+        return fn(self._value)
 
     @overload
     def recover_from_left(self, fn: Callable[[L], 'Right[V]']) -> 'Right[R]': pass
@@ -186,7 +186,7 @@ class Right(Triple, Generic[R]):
             :raises MonadError: violation of the contract by 'right'.
         """
         _panic_on_bad_function(right, monad=self.__class__.__name__, method='unfold')
-        return right(self.__value)
+        return right(self._value)
 
     @overload
     def ap(self: 'Left[V]', wrapped_val) -> 'Left[V]': pass
@@ -211,31 +211,31 @@ class Right(Triple, Generic[R]):
            Combines the logic of map and bind, wrapping simple values in a monad.
            :raises MonadError: violation of the contract.
         """
-        _panic_on_bad_function(self.value, monad=self.__class__.__name__, method='ap')
+        _panic_on_bad_function(self._value, monad=self.__class__.__name__, method='ap')
         if not wrapped_val.is_right:
             return wrapped_val
         val = getattr(wrapped_val, 'value')
-        result = self.value(val)
+        result = self._value(val)
         return result if isinstance(result, Triple) else Right(result)
 
     def get_or_else(self, alter: V) -> R:
-        return self.__value
+        return self._value
 
     def __repr__(self):
-        return f"Right({self.__value})"
+        return f"Right({self._value})"
 
 
 class Left(Triple, Generic[L]):
     """A branch for a value representing an error"""
 
-    __slots__ = ["__value"]
+    __slots__ = ["_value"]
 
     def __init__(self, value: L):
-        self.__value = value
+        self._value = value
 
     @property
     def value(self) -> L:
-        return self.__value
+        return self._value
 
     @property
     def is_right(self) -> bool:
@@ -274,7 +274,7 @@ class Left(Triple, Generic[L]):
            :raises MonadError: violation of the contract.
         """
         _panic_on_bad_function(fn, monad=self.__class__.__name__, method='recover_from_left')
-        result = fn(self.value)
+        result = fn(self._value)
         return result if isinstance(result, Triple) else Right(result)
 
     @overload
@@ -302,7 +302,7 @@ class Left(Triple, Generic[L]):
             :raises MonadError: violation of the contract by 'left'.
         """
         _panic_on_bad_function(left, monad=self.__class__.__name__, method='unfold')
-        return left(self.__value)
+        return left(self._value)
 
     @overload
     def ap(self: 'Left[V]', wrapped_val) -> 'Left[V]': pass
@@ -328,7 +328,7 @@ class Left(Triple, Generic[L]):
         return alter
 
     def __repr__(self):
-        return f"Left({self.__value})"
+        return f"Left({self._value})"
 
 
 class Nothing(Triple):

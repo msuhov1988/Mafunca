@@ -103,6 +103,21 @@ class TestTripleAndCurry(unittest.TestCase):
         with self.assertRaises(MonadError):
             Right(1).map(fn_impure)
 
+    def test_applicative_methods(self):
+        def curried(a):
+            def curried_inner(b):
+                def curried_inner_inner(c):
+                    return a + b + c
+                return curried_inner_inner
+            return curried_inner
+
+        right = Right(curried).ap(Right(10)).ap(Right(10)).ap(Right(10))
+        left = Right(curried).ap(Right(10)).ap(Left("some_error")).ap(Right(10))
+        nothing = Right(curried).ap(Right(10)).ap(Right(10)).ap(Nothing())
+        self.assertEqual(right.value, 30)
+        self.assertIsInstance(left, Left)
+        self.assertIsInstance(nothing, Nothing)
+
     def test_from_nullable(self):
         self.assertIsInstance(TUtils.from_nullable(None), Nothing)
         self.assertIsInstance(TUtils.from_nullable({"a": 1}, predicate=lambda d: d.get("b")), Nothing)
