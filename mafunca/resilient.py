@@ -4,8 +4,9 @@ import inspect
 import asyncio
 
 from mafunca.triple import Left, Nothing, TUtils
-from mafunca.common.resilient_support import Uncaught, Report
+from mafunca.common.resilient_support import Uncaught, Report, get_indexes_for_execution
 from mafunca.common.exceptions import MonadError
+from mafunca.common.panics import on_bad_steps_parameter
 
 
 __all__ = ['of', 'unit', 'ResilientPrime', 'ResilientCont', 'insist']
@@ -117,7 +118,12 @@ class ResilientPrime(_Resilient[A]):
     def effect(self) -> Callable[[], A]:
         return self._effect
 
-    async def _launch(self, rebuild: bool = False) -> Report[Union[A, Uncaught[Exc]], Optional['ResilientPrime']]:
+    async def _launch(
+        self,
+        rebuild: bool = False,
+        steps: Optional[int] = None,
+    ) -> Report[Union[A, Uncaught[Exc]], Optional['ResilientPrime']]:
+        on_bad_steps_parameter(steps, monad_name='Resilient', method='chain starter method')
         try:
             result = await _maybe_await(self._effect())
         except asyncio.CancelledError:
@@ -129,19 +135,24 @@ class ResilientPrime(_Resilient[A]):
         return Report(result, chain_from_failure=None, faulty=None, last_success=None)
 
     async def run(
-            self,
-            rebuild: bool = False,
-            delay: Optional[Union[int, float]] = None
+        self,
+        rebuild: bool = False,
+        steps: Optional[int] = None,
+        delay: Optional[Union[int, float]] = None
     ) -> Report[Union[A, Uncaught], Optional['ResilientPrime']]:
         """
             Async - starts the chain.
+            :arg rebuild: restore the shortened chain(on failure) and identify the source of the failure
+            :arg steps: positive integer(optional), number of steps for partial execution. Ignored here
+            :arg delay: seconds, limit the amount of time spent waiting on execution
+            :raises MonadError: violations of monadic contracts
             :raises TimeoutError: delay is not None and the waiting time has been exceeded.
         """
         if delay is None:
-            return await self._launch(rebuild=rebuild)
+            return await self._launch(rebuild=rebuild, steps=steps)
         else:
             async with asyncio.timeout(delay=delay):
-                return await self._launch(rebuild=rebuild)
+                return await self._launch(rebuild=rebuild, steps=steps)
 
     def to_task(self, rebuild: bool = False) -> asyncio.Task:
         """Wrap the chain starter method into a Task"""
@@ -203,17 +214,19 @@ class ResilientCont(_Resilient[B]):
     def past(self) -> _Sub:
         return self._past
 
-    async def _launch(self, rebuild: bool = False) -> Report[Union[B, Uncaught[Exc]], Optional['ResilientCont']]:
-        """
-            Starts the chain
-            :raises MonadError: violations of monadic contracts
-        """
+    async def _launch(
+        self,
+        rebuild: bool = False,
+        steps: Optional[int] = None
+    ) -> Report[Union[B, Uncaught[Exc]], Optional['ResilientCont']]:
+        on_bad_steps_parameter(steps, monad_name='Resilient', method='chain starter method')
         persist_prime, cons = _unwind(persist=self)
         report_prime = await persist_prime.run(rebuild=rebuild)
         result, restored = report_prime.result, report_prime.chain_from_failure
         faulty, last_success = report_prime.faulty, report_prime.last_success
 
-        for i in range(len(cons) - 1, -1, -1):
+        first_cont_index, last_cont_index = get_indexes_for_execution(steps, inverted_cons=cons)
+        for i in range(first_cont_index, last_cont_index, -1):
             result_new, restored_new = await _execute(result, cons[i]), None
             faulty_new, last_success_new = None, None
             if isinstance(result_new, (ResilientPrime, ResilientCont)):
@@ -239,19 +252,24 @@ class ResilientCont(_Resilient[B]):
         return Report(result, chain_from_failure=restored, faulty=faulty, last_success=last_success)
 
     async def run(
-            self,
-            rebuild: bool = False,
-            delay: Optional[Union[int, float]] = None
+        self,
+        rebuild: bool = False,
+        steps: Optional[int] = None,
+        delay: Optional[Union[int, float]] = None
     ) -> Report[Union[A, Uncaught], Optional['ResilientCont']]:
         """
             Async - starts the chain.
+            :arg rebuild: restore the shortened chain(on failure) and identify the source of the failure
+            :arg steps: positive integer(optional), number of steps for partial execution
+            :arg delay: seconds, limit the amount of time spent waiting on execution
+            :raises MonadError: violations of monadic contracts
             :raises TimeoutError: delay is not None and the waiting time has been exceeded.
         """
         if delay is None:
-            return await self._launch(rebuild=rebuild)
+            return await self._launch(rebuild=rebuild, steps=steps)
         else:
             async with asyncio.timeout(delay=delay):
-                return await self._launch(rebuild=rebuild)
+                return await self._launch(rebuild=rebuild, steps=steps)
 
     def to_task(self, rebuild: bool = False) -> asyncio.Task:
         """Wrap the chain starter method into a Task"""

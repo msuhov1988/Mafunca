@@ -1,8 +1,8 @@
-from typing import TypeVar, Generic, NoReturn, Optional
+from typing import TypeVar, Generic, NoReturn, Optional, List, Tuple
 from collections.abc import Callable
 
 
-__all__ = ['Uncaught', 'Report']
+__all__ = ['Uncaught', 'Report', 'get_indexes_for_execution']
 
 
 Exc = TypeVar('Exc', bound=Exception)
@@ -63,9 +63,22 @@ class Report(Generic[A, B]):
     def is_ok(self) -> bool:
         return self._chain_from_failure is None
 
+    @property
+    def contains_an_uncaught(self) -> bool:
+        return isinstance(self._result, Uncaught)
+
     def __repr__(self):
         result = f'result={self._result}'
         chain = f'chain_from_failure={self._chain_from_failure}'
         faulty = f'faulty={self._faulty}'
         last_success = f'last_success={self._last_success}'
         return f'Report({result}, {chain}, {faulty}, {last_success})'
+
+
+def get_indexes_for_execution(steps: Optional[int], inverted_cons: List) -> Tuple[int, int]:
+    chain_length = len(inverted_cons) + 1  # +1 since prime always comes first, in addition to inverted_cons
+    bounded_steps = chain_length if steps is None or steps > chain_length else steps
+    bounded_steps_without_prime = bounded_steps - 1
+    first_cont_index = len(inverted_cons) - 1  # inverted_cons is an inverted list, the last is the first
+    last_cont_index = first_cont_index - bounded_steps_without_prime
+    return first_cont_index, last_cont_index

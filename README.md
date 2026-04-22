@@ -372,6 +372,8 @@ It is quite logical to demand further improvements from such a monad:
 - let it **catch all errors** by returning a **special object** that indicates that this is an exception that we did not catch. For such an object, let it:
     - also makes a short circuit
     - also returns a reference to the failed function, last successful result and a **shortened chain from the point of failure**
+    - this **special object** must be able to throw origin exception(for debugging purposes, for example)
+- let it allows to run the chain partially by specifying the number of steps (this can be useful for testing, for example)
 
 All of this can be useful, given that effectful monads often contain functions that make requests to external systems.  
 In such scenarios, it is not uncommon for errors to be caused by external factors rather than our code, and they may be temporary in nature.  
@@ -417,32 +419,37 @@ report1.result                   # direct result or Uncaught object
 report1.chain_from_failure       # None
 report1.faulty                   # None
 report1.last_success             # None
-report1.is_ok                    # True
+report1.is_ok                    # True (chain_from_failure is None)
+report1.contains_an_uncaught     # False or True (whether the result is an Uncaught object)
 
 # restore the shortened chain(on failure) and identify the source of the failure
 report2 = await resilient2.run(rebiuld=True)
 isinstance(report2, Report)      # True
-
 report2.result                   # direct result or Uncaught object
 report2.chain_from_failure       # restored chain or None
 report2.faulty                   # callable or None (source of the failure)
 report2.last_success             # last successful or report2.result on normal completion
-report2.is_ok                    # False or True (was there a failure or not)
+report2.is_ok                    # False or True (chain_from_failure is not or is None)
+report2.contains_an_uncaught     # False or True (whether the result is an Uncaught object)
+
+# partial execution
+report3 = await resilient3.run(steps=3)
+report4 = await resilient4.run(rebiuld=True, steps=3) # restores only a partial chain
 
 # an object that contains an exception that was not caught by user code
 exc = Uncaught(SomeUncaughtException)
 exc.error    # SomeUncaughtException
-exc.throw    # raise SomeUncaughtException
+exc.throw()  # raise SomeUncaughtException
 ```
 ### Resilient chained methods
-| Method                                            | Description                                                                                                    | resilient module          | resilient_sync module         |
-|---------------------------------------------------|----------------------------------------------------------------------------------------------------------------|---------------------------|-------------------------------|
-| **.chain(fn)**                                    | combines both **map** and **bind** methods of regular monads                                                   | returns new ResilientCont | returns new ResilientSyncCont |
-| **.catch(fn)**                                    | Catches errors. **fn** - function of the form **Callable[[Exc], R]**, where **Exc** - subtype of **Exception** | returns new ResilientCont | returns new ResilientSyncCont |
-| **.ensure(fn)**                                   | Acts like **finally**. **fn** - function without parameters and a return value (returns None)                  | returns new ResilientCont | returns new ResilientSyncCont |
-| **.to_task(rebuild: bool = False)**               | Wraps the inner effect into a Task. Parameter 'rebuild' the same as in **run** method                          | returns asyncio.Task      | -                             |
-| **.run(rebuild: bool = False)**                   | Performs a chain of effects. **rebuild=True** - restore the shortened chain(on failure).                       | -                         | returns Report object         |
-| **async .run(rebuild: bool = False, delay=None)** | The same as sync **run**. **delay** - uses the **asyncio.timeout** mechanism to limit execution time           | returns Report object     | -                             |
+| Method                                                                         | Description                                                                                                    | resilient module          | resilient_sync module         |
+|--------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------|---------------------------|-------------------------------|
+| **.chain(fn)**                                                                 | combines both **map** and **bind** methods of regular monads                                                   | returns new ResilientCont | returns new ResilientSyncCont |
+| **.catch(fn)**                                                                 | Catches errors. **fn** - function of the form **Callable[[Exc], R]**, where **Exc** - subtype of **Exception** | returns new ResilientCont | returns new ResilientSyncCont |
+| **.ensure(fn)**                                                                | Acts like **finally**. **fn** - function without parameters and a return value (returns None)                  | returns new ResilientCont | returns new ResilientSyncCont |
+| **.to_task(rebuild: bool = False)**                                            | Wraps the inner effect into a Task. Parameter 'rebuild' the same as in **run** method                          | returns asyncio.Task      | -                             |
+| **.run(rebuild: bool = False, steps: Optional[int] = None)**                   | Performs a chain of effects. **rebuild=True** - restore the shortened chain(on failure).                       | -                         | returns Report object         |
+| **async .run(rebuild: bool = False, steps: Optional[int] = None, delay=None)** | The same as sync **run**. **delay** - uses the **asyncio.timeout** mechanism to limit execution time           | returns Report object     | -                             |
 
 #### Module function **'insist'**:
   | Module         | Signature                                                               | Description                                                                                                          |

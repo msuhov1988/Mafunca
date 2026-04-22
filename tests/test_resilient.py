@@ -4,6 +4,7 @@ import asyncio
 from mafunca.triple import Left, Nothing
 from mafunca.resilient import of, unit, insist
 from mafunca.common.resilient_support import Report, Uncaught
+from mafunca.common.exceptions import MonadError
 
 
 async def get_five():
@@ -474,6 +475,83 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rp.result, 36)
         self.assertEqual(rp.last_success, 36)
         self.assertEqual(kit, [2, 1, 0])
+
+    async def test_partial_execution_steps_violation(self):
+        resilient = of(0).chain(lambda v: v + 1)
+        with self.assertRaises(MonadError):
+            await resilient.run(steps=0)
+        with self.assertRaises(MonadError):
+            await resilient.run(steps=-1)
+
+    async def test_flat_partial_execution(self):
+        resilient = of(0).chain(lambda v: v + 1).chain(lambda v: v + 1).chain(lambda v: v + 10)
+        rp = await resilient.run(steps=1)
+        self.assertEqual(rp.result, 0)
+
+        rp = await resilient.run(steps=2)
+        self.assertEqual(rp.result, 1)
+
+        rp = await resilient.run(steps=3)
+        self.assertEqual(rp.result, 2)
+
+        rp = await resilient.run(steps=4)
+        self.assertEqual(rp.result, 12)
+
+        rp = await resilient.run(steps=50)
+        self.assertEqual(rp.result, 12)
+
+    async def test_nested_partial_execution(self):
+        def level(val):
+            return unit(lambda: val + 1).chain(lambda v: v * 2).chain(lambda v: v * 2)
+
+        resilient = of(1).chain(level).chain(lambda v: v + 10).chain(lambda v: v + 10).chain(lambda v: v + 10)
+        rp = await resilient.run(steps=1)
+        self.assertEqual(rp.result, 1)
+
+        rp = await resilient.run(steps=3)
+        self.assertEqual(rp.result, 18)
+
+        rp = await resilient.run(steps=4)
+        self.assertEqual(rp.result, 28)
+
+    async def test_errors_flat_partial_execution(self):
+        g = 0
+
+        async def raiser(val):
+            nonlocal g
+            g += 1
+            if g < 3:
+                raise TypeError("it's too early")
+            return val * 2
+
+        resilient = of(0).chain(lambda v: v + 1).chain(raiser).chain(lambda v: v + 10)
+        rp = await resilient.run(rebuild=True, steps=3)
+        self.assertIsInstance(rp.result, Uncaught)
+        self.assertEqual(rp.last_success, 1)
+
+        rp = await insist(rp.chain_from_failure, 2)
+        self.assertEqual(rp.result, 2)
+
+    async def test_errors_nested_partial_execution(self):
+        g = 0
+
+        async def raiser(val):
+            nonlocal g
+            g += 1
+            if g < 3:
+                raise TypeError("it's too early")
+            return val * 2
+
+        async def level(val):
+            return unit(lambda: val + 1).chain(raiser).chain(lambda v: v * 2)
+
+        resilient = of(1).chain(level).chain(lambda v: v + 10).chain(lambda v: v + 10).chain(lambda v: v + 10)
+        rp = await resilient.run(rebuild=True, steps=3)
+        self.assertIsInstance(rp.result, Uncaught)
+        self.assertEqual(rp.last_success, 2)
+
+        rp = await insist(rp.chain_from_failure, 2)
+        self.assertEqual(rp.result, 18)
 
 
 if __name__ == '__main__':

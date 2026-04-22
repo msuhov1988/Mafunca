@@ -1,5 +1,6 @@
 import inspect
 from collections.abc import Callable
+from typing import Optional
 
 from mafunca.common.exceptions import MonadError, CurryBadFunctionError
 
@@ -58,6 +59,22 @@ def on_another_instance(result, fn: Callable, monad, method: str):
             name,
             method,
             f"return value {result} of applying function '{extract_name(fn)}' must be '{name}' entity"
+        )
+
+
+def on_bad_steps_parameter(steps: Optional[int], monad_name: str, method: str):
+    """
+       Panics when the steps parameter is bad in the resilient monad launcher method
+       :raises MonadError:
+    """
+    if steps is None:
+        return
+    if not isinstance(steps, int) or steps <= 0:
+        tp = type(steps)
+        raise MonadError(
+            monad_name,
+            method,
+            f"'steps' parameter - a positive integer or None was expected, but {steps} of type {tp} received"
         )
 
 

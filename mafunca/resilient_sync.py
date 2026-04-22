@@ -3,7 +3,7 @@ from collections.abc import Callable
 from time import sleep
 
 from mafunca.triple import Left, Nothing, TUtils
-from mafunca.common.resilient_support import Uncaught, Report
+from mafunca.common.resilient_support import Uncaught, Report, get_indexes_for_execution
 from mafunca.common.exceptions import MonadError
 import mafunca.common.panics as panics
 
@@ -122,11 +122,18 @@ class ResilientSyncPrime(_ResilientSync[A]):
     def effect(self) -> Callable[[], A]:
         return self._effect
 
-    def run(self, rebuild: bool = False) -> Report[Union[A, Uncaught], Optional['ResilientSyncPrime']]:
+    def run(
+        self,
+        rebuild: bool = False,
+        steps: Optional[int] = None
+    ) -> Report[Union[A, Uncaught], Optional['ResilientSyncPrime']]:
         """
             Starts the chain
-            :raises MonadError: panics on coroutine function
+            :arg rebuild: restore the shortened chain(on failure) and identify the source of the failure
+            :arg steps: positive integer(optional), number of steps for partial execution. Ignored here
+            :raises MonadError: violations of monadic contracts
         """
+        panics.on_bad_steps_parameter(steps, monad_name='ResilientSync', method='chain starter method')
         try:
             result = self._effect()
         except Exception as exc:
@@ -191,17 +198,25 @@ class ResilientSyncCont(_ResilientSync[B]):
     def past(self) -> _SyncSub:
         return self._past
 
-    def run(self, rebuild: bool = False) -> Report[Union[B, Uncaught], Optional['ResilientSyncCont']]:
+    def run(
+        self,
+        rebuild: bool = False,
+        steps: Optional[int] = None
+    ) -> Report[Union[B, Uncaught], Optional['ResilientSyncCont']]:
         """
             Starts the chain
-            :raises MonadError: panics on coroutine function
+            :arg rebuild: restore the shortened chain(on failure) and identify the source of the failure
+            :arg steps: positive integer(optional), number of steps for partial execution
+            :raises MonadError: violations of monadic contracts
         """
+        panics.on_bad_steps_parameter(steps, monad_name='ResilientSync', method='chain starter method')
         persist_prime, cons = _unwind(persist=self)
         report_prime = persist_prime.run(rebuild=rebuild)
         result, restored = report_prime.result, report_prime.chain_from_failure
         faulty, last_success = report_prime.faulty, report_prime.last_success
 
-        for i in range(len(cons) - 1, -1, -1):
+        first_cont_index, last_cont_index = get_indexes_for_execution(steps, inverted_cons=cons)
+        for i in range(first_cont_index, last_cont_index, -1):
             result_new, restored_new = _execute(result, cons[i]), None
             faulty_new, last_success_new = None, None
             if isinstance(result_new, (ResilientSyncPrime, ResilientSyncCont)):
