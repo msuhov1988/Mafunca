@@ -363,11 +363,11 @@ This greatly increases the reliability of the functional chain:
 from mafunca.eff import Eff
 
 # if I catch all errors or nulls reliably in func1 and return Left or Nothing
-# I don't have to worry about further functions in the chain
+# I don't need to worry about invalid values being passed to further functions
 Eff.of(value).map(func1).map(func2).map(func3)...
 ```
 It is quite logical to demand further improvements from such a monad:
-- instead of just returning a 'bad' **Triple** entity, it should also return a reference to the failed function and the last successful result
+- instead of just returning a 'bad' **Triple** entity, it should also return a reference to the 'bad' function and the last successful result
 - let it return a **shortened chain from the point of failure** so that it can be restarted
   without repeating the steps that were successfully completed
 - let it **catch all errors** by returning a **special object** that indicates that this is an exception that we did not catch. For such an object, let it:
@@ -375,6 +375,9 @@ It is quite logical to demand further improvements from such a monad:
     - also returns a reference to the failed function, last successful result and a **shortened chain from the point of failure**
     - this **special object** must be able to throw origin exception(for debugging purposes, for example)
 - let it allows to run the chain partially by specifying the number of steps (this can be useful for testing, for example)
+
+Thus, this abstraction ensures that each function that runs without errors will not be called again,
+including within nested chains, regardless of the number of recovery attempts.
 
 All of this can be useful, given that effectful monads often contain functions that make requests to external systems.  
 In such scenarios, it is not uncommon for errors to be caused by external factors rather than our code, and they may be temporary in nature.  
