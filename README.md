@@ -423,7 +423,7 @@ report1.is_ok                    # True (chain_from_failure is None)
 report1.contains_an_uncaught     # False or True (whether the result is an Uncaught object)
 
 # restore the shortened chain(on failure) and identify the source of the failure
-report2 = await resilient2.run(rebiuld=True)
+report2 = await resilient2.run(rebuild=True)
 isinstance(report2, Report)      # True
 report2.result                   # direct result or Uncaught object
 report2.chain_from_failure       # restored chain or None
@@ -434,7 +434,7 @@ report2.contains_an_uncaught     # False or True (whether the result is an Uncau
 
 # partial execution
 report3 = await resilient3.run(steps=3)
-report4 = await resilient4.run(rebiuld=True, steps=3) # restores only a partial chain
+report4 = await resilient4.run(rebuild=True, steps=3) # restores only a partial chain
 
 # an object that contains an exception that was not caught by user code
 exc = Uncaught(SomeUncaughtException)
