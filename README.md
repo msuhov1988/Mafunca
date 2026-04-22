@@ -517,7 +517,8 @@ report = insist(resilient, attempts=3)
 ```
 
 ### Resilient limitations
-- Of course, you must ensure that the shortened chain is safe to run. Your functions must be idempotent and should not leave any "traces" if an error occurs, for example.
+- Of course, you must ensure that the shortened chain is safe to run. Resilient chains do not require total idempotence of functions. BUT! Functions must be idempotent in case of an error.
+  They should not leave any "traces" if an error occurs, for example.
 - Be careful with the **.ensure** method - it is always executed. This means that it will also be executed in the shortened chain again  if it enters it.
 
 ## Currying
