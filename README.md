@@ -369,6 +369,7 @@ Eff.of(value).map(func1).map(func2).map(func3)...
 It is quite logical to demand further improvements from such a monad:
 - instead of just returning a 'bad' **Triple** entity, it should also return a reference to the failed function and the last successful result
 - let it return a **shortened chain from the point of failure** so that it can be restarted
+  without repeating the steps that were successfully completed
 - let it **catch all errors** by returning a **special object** that indicates that this is an exception that we did not catch. For such an object, let it:
     - also makes a short circuit
     - also returns a reference to the failed function, last successful result and a **shortened chain from the point of failure**
