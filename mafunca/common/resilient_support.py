@@ -28,11 +28,11 @@ class Uncaught(Generic[Exc]):
         return f'Uncaught({self._error.__class__})'
 
 
-A = TypeVar('A')
-B = TypeVar('B')
+_Result = TypeVar('_Result')
+_Chain = TypeVar('_Chain')
 
 
-class Report(Generic[A, B]):
+class Report(Generic[_Result, _Chain]):
     """
         For resilient effects.
         A container that contains the result, a shortened chain (optional) and a failure function (optional).
@@ -40,18 +40,18 @@ class Report(Generic[A, B]):
 
     __slots__ = ('_result', '_chain_from_failure', '_faulty', '_last_success')
 
-    def __init__(self, result: A, chain_from_failure: B, faulty: Optional[Callable], last_success):
+    def __init__(self, result: _Result, chain_from_failure: _Chain, faulty: Optional[Callable], last_success):
         self._result = result
         self._chain_from_failure = chain_from_failure
         self._faulty = faulty
         self._last_success = last_success
 
     @property
-    def result(self) -> A:
+    def result(self) -> _Result:
         return self._result
 
     @property
-    def chain_from_failure(self) -> B:
+    def chain_from_failure(self) -> _Chain:
         return self._chain_from_failure
 
     @property
