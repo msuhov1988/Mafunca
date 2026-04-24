@@ -1,4 +1,4 @@
-from typing import TypeVar, Generic, Union, Optional, List, Any, Never
+from typing import TypeVar, TypeAlias, Generic, Union, Optional, List, Any, Never
 from collections.abc import Callable, Awaitable
 import inspect
 import asyncio
@@ -24,6 +24,10 @@ _Bad = TypeVar('_Bad', bound=DefaultBad)
 _NewBad = TypeVar('_NewBad', bound=DefaultBad)
 _AwaitableBad = Union[Awaitable[_Bad], _Bad]
 _AwaitableNewBad = Union[Awaitable[_NewBad], _NewBad]
+
+_PrimeEffect: TypeAlias = Callable[[], Union[_Ok, _Bad, Awaitable[_Ok], Awaitable[_Bad]]]
+_ContEffect: TypeAlias = Callable[[Any], Union[_Ok, _Bad, Awaitable[_Ok], Awaitable[_Bad]]]
+_Effect = Union[_PrimeEffect, _ContEffect]
 
 
 def _unwind(persist: 'Resilient') -> List[Callable]:
@@ -64,18 +68,18 @@ class Resilient(Generic[_Ok, _Bad]):
 
     def __init__(
         self,
-        effect: Callable[..., Union[_AwaitableOk, _AwaitableBad]],
+        effect: _Effect,
         past: Optional['Resilient[Any, Any]'] = None
     ):
         self._effect = effect
         self._past = past
 
     @property
-    def effect(self) -> Callable[..., Union[_AwaitableOk, _AwaitableBad]]:
+    def effect(self) -> _Effect:
         return self._effect
 
     @property
-    def past(self) -> 'Resilient[Any, Any]':
+    def past(self) -> Optional['Resilient[Any, Any]']:
         return self._past
 
     def chain(
@@ -100,7 +104,7 @@ class Resilient(Generic[_Ok, _Bad]):
         self,
         rebuild: bool = False,
         steps: Optional[int] = None
-    ) -> Report[_Ok, Optional['Resilient[Any, Any]']]:
+    ) -> Report[Union[_Ok, _Bad], Optional['Resilient[Any, Any]']]:
         result, restored, faulty, last_success = None, None, None, None
         cls = self.__class__
         funcs = _unwind(persist=self)
@@ -135,7 +139,7 @@ class Resilient(Generic[_Ok, _Bad]):
         rebuild: bool = False,
         steps: Optional[int] = None,
         delay: Optional[Union[int, float]] = None
-    ) -> Report[_Ok, Optional['Resilient[Any, Any]']]:
+    ) -> Report[Union[_Ok, _Bad], Optional['Resilient[Any, Any]']]:
         """
             Async - starts the chain.
             :arg rebuild: restore the shortened chain(on failure) and identify the source of the failure
@@ -182,7 +186,7 @@ async def insist(
         attempts: int = 1,
         delay_for_attempt: Union[int, float] = None,
         pause_between: Union[int, float] = 0
-) -> Report[_Ok, Optional[Resilient]]:
+) -> Report[Union[_Ok, _Bad], Optional[Resilient]]:
     """
         Makes 'attempts' with 'delay_for_attempt' to execute a 'resilient' chain
         with 'pause_between' intervals between them

@@ -64,7 +64,7 @@ class ResilientSync(Generic[_Ok, _Bad]):
         return self._effect
 
     @property
-    def past(self) -> 'ResilientSync[Any, Any]':
+    def past(self) -> Optional['ResilientSync[Any, Any]']:
         return self._past
 
     def chain(
@@ -101,7 +101,7 @@ class ResilientSync(Generic[_Ok, _Bad]):
         self,
         rebuild: bool = False,
         steps: Optional[int] = None
-    ) -> Report[_Ok, Optional['ResilientSync[Any, Any]']]:
+    ) -> Report[Union[_Ok, _Bad], Optional['ResilientSync[Any, Any]']]:
         """
             Starts the chain
             :arg rebuild: restore the shortened chain(on failure) and identify the source of the failure
@@ -162,7 +162,7 @@ def insist(
         resilient: ResilientSync[_Ok, _Bad],
         attempts: int = 1,
         pause_between: Union[int, float] = 0
-) -> Report[_Ok, Optional[ResilientSync]]:
+) -> Report[Union[_Ok, _Bad], Optional[ResilientSync]]:
     """Makes 'attempts' to execute a 'resilient' chain with 'pause_between' intervals between them"""
     chain, report = resilient, Report(None, None, None, None)
 
