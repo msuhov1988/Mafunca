@@ -1,185 +1,41 @@
-from typing import TypeVar, Generic, overload, Union, Optional, List, Tuple
+from typing import TypeVar, Generic, Union, Optional, List, Any
 from collections.abc import Callable, Awaitable
 import inspect
 import asyncio
 
-from mafunca.triple import Left, Nothing, TUtils
-from mafunca.common.resilient_support import Uncaught, Report, get_indexes_for_execution
+from mafunca.triple import TUtils
+from mafunca.common.resilient_support import Uncaught, Report
 from mafunca.common.exceptions import MonadError
-from mafunca.common.panics import on_bad_steps_parameter
+import mafunca.common._resilient_specs as specs # noqa
 
 
-__all__ = ['of', 'unit', 'ResilientPrime', 'ResilientCont', 'insist']
+__all__ = ['of', 'unit', 'insist', 'Resilient']
 
 
 Exc = TypeVar('Exc', bound=Exception)
 A = TypeVar('A')
 B = TypeVar('B')
-C = TypeVar('C')
-L = TypeVar('L')
 
 
-async def _maybe_await(obj: Union[Awaitable[A], A]) -> A:
-    return await obj if inspect.isawaitable(obj) else obj
-
-
-_ORIGIN_LINK = "__mafunca_resilient_origin__"
-
-
-def _continuer(fn: Callable, bad_evaluator: Callable[..., bool]) -> Callable[..., Awaitable]:
-    """
-        Special async closure for continuation through the standard chain method.
-        With short circuits on 'Uncaught' and custom 'bad' entities.
-    """
-    async def _continuer_inner(arg):
-        if isinstance(arg, Uncaught) or bad_evaluator(arg):
-            return arg
-        return await _maybe_await(fn(arg))
-
-    setattr(_continuer_inner, _ORIGIN_LINK, fn)
-    return _continuer_inner
-
-
-def _catcher(fn: Callable) -> Callable[..., Awaitable]:
-    """Special async closure for catching errors"""
-    async def _catcher_inner(arg):
-        if isinstance(arg, Uncaught):
-            return await _maybe_await(fn(arg.error))
-        return arg
-
-    setattr(_catcher_inner, _ORIGIN_LINK, fn)
-    return _catcher_inner
-
-
-def _ensurer(fn: Callable) -> Callable[..., Awaitable]:
-    """An async closure simulating finally"""
-    async def _ensurer_inner(arg):
-        await _maybe_await(fn())
-        return arg
-
-    setattr(_ensurer_inner, _ORIGIN_LINK, fn)
-    return _ensurer_inner
-
-
-def _extract_from_closure(closure: Callable) -> Callable:
-    """Extract origin function from closures like '_continuer' and etc"""
-    origin = getattr(closure, _ORIGIN_LINK, None)
-    if origin is None:
-        return closure
-    return origin
-
-
-class _Resilient(Generic[A]):
-    __slots__ = ('_effect',)
-
-    def __init__(self, effect: Callable[..., A]):
-        self._effect = effect
-
-    @overload
-    def chain(self: '_Resilient[Uncaught[Exc]]', fn: Callable[[B], C]) -> 'ResilientCont[Uncaught[Exc]]': pass
-    @overload
-    def chain(self: '_Resilient[Left[L]]', fn: Callable[[B], C]) -> 'ResilientCont[Left[L]]': pass
-    @overload
-    def chain(self: '_Resilient[Nothing]', fn: Callable[[B], C]) -> 'ResilientCont[Nothing]': pass
-    @overload
-    def chain(self, fn: Callable[[A], '_Resilient[B]']) -> 'ResilientCont[B]': pass
-    @overload
-    def chain(self, fn: Callable[[A], Awaitable[B]]) -> 'ResilientCont[B]': pass
-    @overload
-    def chain(self, fn: Callable[[A], B]) -> 'ResilientCont[B]': pass
-
-    def chain(self, fn):
-        """Combines the logic of both 'map' and 'bind' in regular monads"""
-        return ResilientCont(_continuer(fn, bad_evaluator=TUtils.is_bad), past=self)
-
-    @overload
-    def catch(self, fn: Callable[[Exc], '_Resilient[B]']) -> 'ResilientCont[Union[A, B]]': pass
-    @overload
-    def catch(self, fn: Callable[[Exc], Awaitable[B]]) -> 'ResilientCont[Union[A, B]]': pass
-    @overload
-    def catch(self, fn: Callable[[Exc], B]) -> 'ResilientCont[Union[A, B]]': pass
-
-    def catch(self, fn):
-        """Handles errors(Exception heirs) that occurred earlier in the chain."""
-        return ResilientCont(_catcher(fn), past=self)
-
-    def ensure(self, fn: Callable[[], Union[Awaitable[None], None]]) -> 'ResilientCont[A]':
-        """Guaranteed to execute the function-parameter, similar to try finally."""
-        return ResilientCont(_ensurer(fn), past=self)
-
-
-class ResilientPrime(_Resilient[A]):
-    """Use only for typing purposes. To create monads, use the 'of' and 'unit' functions and chained methods"""
-
-    def __init__(self, effect: Callable[[], A]):
-        super().__init__(effect)
-
-    @property
-    def effect(self) -> Callable[[], A]:
-        return self._effect
-
-    async def _launch(
-        self,
-        rebuild: bool = False,
-        steps: Optional[int] = None,
-    ) -> Report[Union[A, Uncaught[Exc]], Optional['ResilientPrime']]:
-        on_bad_steps_parameter(steps, monad_name='Resilient', method='chain starter method')
-        try:
-            result = await _maybe_await(self._effect())
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            result = Uncaught(exc)
-        if rebuild and (isinstance(result, Uncaught) or TUtils.is_bad(result)):
-            return Report(result, ResilientPrime(self._effect), self._effect, None)
-        return Report(result, chain_from_failure=None, faulty=None, last_success=None)
-
-    async def run(
-        self,
-        rebuild: bool = False,
-        steps: Optional[int] = None,
-        delay: Optional[Union[int, float]] = None
-    ) -> Report[Union[A, Uncaught], Optional['ResilientPrime']]:
-        """
-            Async - starts the chain.
-            :arg rebuild: restore the shortened chain(on failure) and identify the source of the failure
-            :arg steps: positive integer(optional), number of steps for partial execution. Ignored here
-            :arg delay: seconds, limit the amount of time spent waiting on execution
-            :raises MonadError: violations of monadic contracts
-            :raises TimeoutError: delay is not None and the waiting time has been exceeded.
-        """
-        if delay is None:
-            return await self._launch(rebuild=rebuild, steps=steps)
-        else:
-            async with asyncio.timeout(delay=delay):
-                return await self._launch(rebuild=rebuild, steps=steps)
-
-    def to_task(self, rebuild: bool = False) -> asyncio.Task:
-        """Wrap the chain starter method into a Task"""
-        return asyncio.create_task(self._launch(rebuild=rebuild))
-
-
-def _unwind(persist: 'ResilientCont') -> Tuple['ResilientPrime', List[Callable]]:
+def _unwind(persist: 'Resilient') -> List[Callable]:
     """Unwinding the chain to the first effect"""
     current, effects = persist, []
-    while isinstance(current, ResilientCont):
+    while isinstance(current, Resilient):
         effects.append(current.effect)
         current = current.past
-    if isinstance(current, ResilientPrime):
-        return current, effects
-    raise MonadError(
-        monad='Resilient',
-        method='chain starter method',
-        message="Violation of the usage contract - the first element in the chain must be a 'ResilientPrime' entity"
-    )
+    return effects
 
 
-async def _execute(value: A, fn: Callable):
+async def _execute(fn, value=None):
     """
         Execute function from chain with catching errors.
         MonadError is not suppressed.
+        :raises MonadError: panics on coroutine function
     """
+    params = inspect.signature(fn).parameters
     try:
+        if len(params) == 0:
+            return await specs.maybe_await(fn())   # first effect maybe sync or async
         return await fn(value)
     except asyncio.CancelledError:
         raise
@@ -189,50 +45,50 @@ async def _execute(value: A, fn: Callable):
         return Uncaught(exc)
 
 
-def _make_effect(val: A) -> Callable[[], A]:
+def _make_effect(val):
     """To prevent lambda from updating the reference when it is reassigned  in a loop"""
     return lambda: val
 
 
-_Sub = TypeVar('_Sub', bound=_Resilient)
+class Resilient(Generic[A]):
+    __slots__ = ('_effect', '_past')
 
-
-class ResilientCont(_Resilient[B]):
-    """Use only for typing purposes. To create monads, use the 'of' and 'unit' functions and chained methods"""
-
-    __slots__ = ('_past',)
-
-    def __init__(self, effect: Callable[[A], B], past: _Sub):
-        super().__init__(effect)
+    def __init__(self, effect: Callable[..., A], past: Optional['Resilient[Any]'] = None):
+        self._effect = effect
         self._past = past
 
     @property
-    def effect(self) -> Callable[[A], B]:
+    def effect(self) -> Callable[..., A]:
         return self._effect
 
     @property
-    def past(self) -> _Sub:
+    def past(self) -> 'Resilient[Any]':
         return self._past
 
-    async def _launch(
-        self,
-        rebuild: bool = False,
-        steps: Optional[int] = None
-    ) -> Report[Union[B, Uncaught[Exc]], Optional['ResilientCont']]:
-        on_bad_steps_parameter(steps, monad_name='Resilient', method='chain starter method')
-        persist_prime, cons = _unwind(persist=self)
-        report_prime = await persist_prime.run(rebuild=rebuild)
-        result, restored = report_prime.result, report_prime.chain_from_failure
-        faulty, last_success = report_prime.faulty, report_prime.last_success
+    def chain(self, fn: Callable[[A], Union['Resilient[B]', Awaitable[B], B]]) -> 'Resilient[B]':
+        """Combines the logic of both 'map' and 'bind' in regular monads"""
+        return self.__class__(specs.continuer(fn, bad_evaluator=TUtils.is_bad), past=self)
 
-        first_cont_index, last_cont_index = get_indexes_for_execution(steps, inverted_cons=cons)
-        for i in range(first_cont_index, last_cont_index, -1):
-            result_new, restored_new = await _execute(result, cons[i]), None
-            faulty_new, last_success_new = None, None
-            if isinstance(result_new, (ResilientPrime, ResilientCont)):
-                rpt = await result_new.run(rebuild=rebuild)
-                result_new, restored_new = rpt.result, rpt.chain_from_failure
-                faulty_new, last_success_new = rpt.faulty, rpt.last_success
+    def catch(self, fn: Callable[[Exc], Union['Resilient[B]', Awaitable[B], B]]) -> 'Resilient[B]':
+        """Handles errors(Exception heirs) that occurred earlier in the chain."""
+        return self.__class__(specs.catcher(fn), past=self)
+
+    def ensure(self, fn: Callable[[], Union[Awaitable[None], None]]) -> 'Resilient[A]':
+        """Guaranteed to execute the function-parameter, similar to try finally."""
+        return self.__class__(specs.ensurer(fn), past=self)
+
+    async def _launch(self, rebuild: bool = False, steps: Optional[int] = None) -> Report[A, Optional['Resilient']]:
+        result, restored, faulty, last_success = None, None, None, None
+        cls = self.__class__
+        funcs = _unwind(persist=self)
+        first_index, last_index = specs.get_indexes_for_execution(steps, inverted_funcs=funcs)
+        for i in range(first_index, last_index, -1):
+            result_new = await _execute(funcs[i], result)  # since the first func has no params, we can safely pass None
+            restored_new, faulty_new, last_success_new = None, None, None
+            if isinstance(result_new, cls):
+                report = await result_new.run(rebuild=rebuild)
+                result_new, restored_new = report.result, report.chain_from_failure
+                faulty_new, last_success_new = report.faulty, report.last_success
 
             if rebuild:
                 if restored_new:
@@ -240,11 +96,11 @@ class ResilientCont(_Resilient[B]):
                     restored, faulty, last_success = restored_new, faulty_new, last_success_new
                 elif isinstance(result_new, Uncaught) or TUtils.is_bad(result_new):
                     if restored is None:
-                        prime = ResilientPrime(_make_effect(result))
-                        restored, faulty = ResilientCont(cons[i], past=prime), _extract_from_closure(cons[i])
+                        prime = cls(_make_effect(result))
+                        restored, faulty = cls(funcs[i], past=prime), specs.get_origin(funcs[i])
                         last_success = result
                     else:
-                        restored = ResilientCont(cons[i], past=restored)
+                        restored = cls(funcs[i], past=restored)
                 else:
                     restored, faulty, last_success = None, None, result_new
             result = result_new
@@ -256,7 +112,7 @@ class ResilientCont(_Resilient[B]):
         rebuild: bool = False,
         steps: Optional[int] = None,
         delay: Optional[Union[int, float]] = None
-    ) -> Report[Union[A, Uncaught], Optional['ResilientCont']]:
+    ) -> Report[A, Optional['Resilient']]:
         """
             Async - starts the chain.
             :arg rebuild: restore the shortened chain(on failure) and identify the source of the failure
@@ -276,7 +132,7 @@ class ResilientCont(_Resilient[B]):
         return asyncio.create_task(self._launch(rebuild=rebuild))
 
 
-def of(value: A) -> ResilientPrime[A]:
+def of(value: A) -> Resilient[A]:
     """
         Lazy monad for resilient async effects.
         Can accept both async and sync functions.
@@ -284,10 +140,10 @@ def of(value: A) -> ResilientPrime[A]:
         Automatically catches errors and wraps them in an 'Uncaught' object.
         Works with bad 'Triple' and 'Uncaught' entities using the short-circuit principle.
     """
-    return ResilientPrime(lambda: value)
+    return Resilient(lambda: value)
 
 
-def unit(fn: Callable[[], A]) -> ResilientPrime[A]:
+def unit(fn: Callable[[], Union[Awaitable[A], A]]) -> Resilient[A]:
     """
         Lazy monad for resilient async effects.
         Can accept both async and sync functions.
@@ -295,15 +151,15 @@ def unit(fn: Callable[[], A]) -> ResilientPrime[A]:
         Automatically catches errors and wraps them in an 'Uncaught' object.
         Works with bad 'Triple' and 'Uncaught' entities using the short-circuit principle.
     """
-    return ResilientPrime(fn)
+    return Resilient(fn)
 
 
 async def insist(
-        resilient: Union[ResilientPrime[A], ResilientCont[A]],
+        resilient: Resilient[A],
         attempts: int = 1,
         delay_for_attempt: Union[int, float] = None,
         pause_between: Union[int, float] = 0
-) -> Report[Union[A, Uncaught[Exc]], Optional['ResilientCont']]:
+) -> Report[A, Optional[Resilient]]:
     """
         Makes 'attempts' with 'delay_for_attempt' to execute a 'resilient' chain
         with 'pause_between' intervals between them

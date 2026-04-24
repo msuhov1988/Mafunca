@@ -6,7 +6,7 @@ from time import sleep
 from mafunca.triple import TUtils
 from mafunca.common.resilient_support import Uncaught, ReportState, get_indexes_for_execution
 from mafunca.common.exceptions import MonadError
-import mafunca.common.panics as panics
+import mafunca.common._panics as panics
 
 
 __all__ = ['of', 'unit', 'StateSync', 'insist']

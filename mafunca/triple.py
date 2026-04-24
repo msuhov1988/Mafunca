@@ -4,7 +4,7 @@ from collections.abc import Callable
 from functools import wraps
 
 from mafunca.common.exceptions import ImpureMarkError, MonadError
-import mafunca.common.panics as panics
+import mafunca.common._panics as panics # noqa
 from mafunca.curry import Curry
 
 

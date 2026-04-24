@@ -3,7 +3,7 @@ from collections.abc import Callable, Awaitable
 from typing import TypeVar, ParamSpec, Generic, Union, List, Dict
 
 from mafunca.common.exceptions import CurryBadArguments
-import mafunca.common.panics as panics
+import mafunca.common._panics as panics # noqa
 
 
 __all__ = ['curry', 'async_curry', 'Curry', 'AsyncCurry']

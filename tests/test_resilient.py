@@ -4,7 +4,6 @@ import asyncio
 from mafunca.triple import Left, Nothing
 from mafunca.resilient import of, unit, insist
 from mafunca.common.resilient_support import Report, Uncaught
-from mafunca.common.exceptions import MonadError
 
 
 async def get_five():
@@ -478,10 +477,10 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
 
     async def test_partial_execution_steps_violation(self):
         resilient = of(0).chain(lambda v: v + 1)
-        with self.assertRaises(MonadError):
-            await resilient.run(steps=0)
-        with self.assertRaises(MonadError):
-            await resilient.run(steps=-1)
+        rp = await resilient.run(steps=0)
+        self.assertEqual(rp.result, None)
+        rp = await resilient.run(steps=-10)
+        self.assertEqual(rp.chain_from_failure, None)
 
     async def test_flat_partial_execution(self):
         resilient = of(0).chain(lambda v: v + 1).chain(lambda v: v + 1).chain(lambda v: v + 10)

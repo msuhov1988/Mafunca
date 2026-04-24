@@ -3,7 +3,7 @@ from collections.abc import Callable
 
 from mafunca.triple import Left, Nothing, TUtils
 from mafunca.common.exceptions import MonadError
-import mafunca.common.panics as panics
+import mafunca.common._panics as panics # noqa
 
 
 __all__ = ['EffSync']

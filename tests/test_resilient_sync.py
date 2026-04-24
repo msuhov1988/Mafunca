@@ -454,10 +454,10 @@ class TestResilientSync(unittest.TestCase):
 
     def test_partial_execution_steps_violation(self):
         resilient = of(0).chain(lambda v: v + 1)
-        with self.assertRaises(MonadError):
-            resilient.run(steps=0)
-        with self.assertRaises(MonadError):
-            resilient.run(steps=-1)
+        rp = resilient.run(steps=0)
+        self.assertEqual(rp.result, None)
+        rp = resilient.run(steps=-10)
+        self.assertEqual(rp.chain_from_failure, None)
 
     def test_flat_partial_execution(self):
         resilient = of(0).chain(lambda v: v + 1).chain(lambda v: v + 1).chain(lambda v: v + 10)

@@ -1,228 +1,110 @@
-from typing import TypeVar, Generic, overload, Union, Optional, List, Tuple
+from typing import TypeVar, Generic, Union, Optional, List, Any, overload
+import inspect
 from collections.abc import Callable
 from time import sleep
 
-from mafunca.triple import Left, Nothing, TUtils
-from mafunca.common.resilient_support import Uncaught, Report, get_indexes_for_execution
+from mafunca.triple import TUtils
+from mafunca.common.resilient_support import Uncaught, Report
 from mafunca.common.exceptions import MonadError
-import mafunca.common.panics as panics
+import mafunca.common._panics as panics  # noqa
+import mafunca.common._resilient_specs as specs # noqa
 
-
-__all__ = ['of', 'unit', 'ResilientSyncPrime', 'ResilientSyncCont', 'insist']
-
+__all__ = ['of', 'unit', 'insist', 'ResilientSync']
 
 Exc = TypeVar('Exc', bound=Exception)
 A = TypeVar('A')
 B = TypeVar('B')
-C = TypeVar('C')
-L = TypeVar('L')
+T = TypeVar('T')
 
 
-_ORIGIN_LINK = "__mafunca_resilient_origin__"
-
-
-def _continuer(fn: Callable, bad_evaluator: Callable[..., bool]) -> Callable:
-    """
-        Special sync closure for continuation through the standard chain method.
-        With short circuits on 'Uncaught' and custom 'bad' entities.
-    """
-    def _continuer_inner(arg):
-        if isinstance(arg, Uncaught) or bad_evaluator(arg):
-            return arg
-        return fn(arg)
-
-    setattr(_continuer_inner, _ORIGIN_LINK, fn)
-    return _continuer_inner
-
-
-def _catcher(fn: Callable) -> Callable:
-    """Special sync closure for catching errors"""
-    def _catcher_inner(arg):
-        if isinstance(arg, Uncaught):
-            return fn(arg.error)
-        return arg
-
-    setattr(_catcher_inner, _ORIGIN_LINK, fn)
-    return _catcher_inner
-
-
-def _ensurer(fn: Callable) -> Callable:
-    """A sync closure simulating finally"""
-    def _ensurer_inner(arg):
-        fn()
-        return arg
-
-    setattr(_ensurer_inner, _ORIGIN_LINK, fn)
-    return _ensurer_inner
-
-
-def _extract_from_closure(closure: Callable) -> Callable:
-    """Extract origin function from closures like '_continuer' and etc"""
-    origin = getattr(closure, _ORIGIN_LINK, None)
-    if origin is None:
-        return closure
-    return origin
-
-
-class _ResilientSync(Generic[A]):
-    __slots__ = ('_effect',)
-
-    def __init__(self, effect: Callable[..., A]):
-        panics.on_coroutine(effect, monad_name=self.__class__.__name__, method='__init__')
-        self._effect = effect
-
-    @overload
-    def chain(self: '_ResilientSync[Uncaught[Exc]]', fn: Callable[[B], C]) -> 'ResilientSyncCont[Uncaught[Exc]]': pass
-    @overload
-    def chain(self: '_ResilientSync[Left[L]]', fn: Callable[[B], C]) -> 'ResilientSyncCont[Left[L]]': pass
-    @overload
-    def chain(self: '_ResilientSync[Nothing]', fn: Callable[[B], C]) -> 'ResilientSyncCont[Nothing]': pass
-    @overload
-    def chain(self, fn: Callable[[A], '_ResilientSync[B]']) -> 'ResilientSyncCont[B]': pass
-    @overload
-    def chain(self, fn: Callable[[A], B]) -> 'ResilientSyncCont[B]': pass
-
-    def chain(self, fn):
-        """
-            Combines the logic of both 'map' and 'bind' in regular monads.
-            :raises MonadError: panics on coroutine function
-        """
-        panics.on_coroutine(fn, monad_name=self.__class__.__name__, method='chain')
-        return ResilientSyncCont(_continuer(fn, bad_evaluator=TUtils.is_bad), past=self)
-
-    @overload
-    def catch(self, fn: Callable[[Exc], '_ResilientSync[B]']) -> 'ResilientSyncCont[Union[A, B]]': pass
-    @overload
-    def catch(self, fn: Callable[[Exc], B]) -> 'ResilientSyncCont[Union[A, B]]': pass
-
-    def catch(self, fn):
-        """
-            Handles errors(Exception heirs) that occurred earlier in the chain.
-            :raises MonadError: panics on coroutine function
-        """
-        panics.on_coroutine(fn, monad_name=self.__class__.__name__, method='catch')
-        return ResilientSyncCont(_catcher(fn), past=self)
-
-    def ensure(self, fn: Callable[[], None]) -> 'ResilientSyncCont[A]':
-        """
-            Guaranteed to execute the function-parameter, similar to try finally.
-            :raises MonadError: panics on coroutine function
-        """
-        panics.on_coroutine(fn, monad_name=self.__class__.__name__, method='ensure')
-        return ResilientSyncCont(_ensurer(fn), past=self)
-
-
-class ResilientSyncPrime(_ResilientSync[A]):
-    """Use only for typing purposes. To create monads, use the 'of' and 'unit' functions and chained methods"""
-
-    def __init__(self, effect: Callable[[], A]):
-        super().__init__(effect)
-
-    @property
-    def effect(self) -> Callable[[], A]:
-        return self._effect
-
-    def run(
-        self,
-        rebuild: bool = False,
-        steps: Optional[int] = None
-    ) -> Report[Union[A, Uncaught], Optional['ResilientSyncPrime']]:
-        """
-            Starts the chain
-            :arg rebuild: restore the shortened chain(on failure) and identify the source of the failure
-            :arg steps: positive integer(optional), number of steps for partial execution. Ignored here
-            :raises MonadError: violations of monadic contracts
-        """
-        panics.on_bad_steps_parameter(steps, monad_name='ResilientSync', method='chain starter method')
-        try:
-            result = self._effect()
-        except Exception as exc:
-            result = Uncaught(exc)
-        if rebuild and (isinstance(result, Uncaught) or TUtils.is_bad(result)):
-            return Report(result, ResilientSyncPrime(self._effect), self._effect, None)
-        return Report(result, chain_from_failure=None, faulty=None, last_success=None)
-
-
-def _unwind(persist: 'ResilientSyncCont') -> Tuple['ResilientSyncPrime', List[Callable]]:
+def _unwind(persist: 'ResilientSync') -> List[Callable]:
     """Unwinding the chain to the first effect"""
     current, effects = persist, []
-    while isinstance(current, ResilientSyncCont):
+    while isinstance(current, ResilientSync):
         effects.append(current.effect)
         current = current.past
-    if isinstance(current, ResilientSyncPrime):
-        return current, effects
-    raise MonadError(
-        monad='ResilientSync',
-        method='chain starter method',
-        message="Violation of the usage contract - the first element in the chain must be a 'ResilientSyncPrime' entity"
-    )
+    return effects
 
 
-def _execute(value: A, fn: Callable[[A], B]) -> Union[B, Uncaught[Exc]]:
+def _execute(fn, value=None):
     """
         Execute function from chain with catching errors.
         MonadError is not suppressed.
         :raises MonadError: panics on coroutine function
     """
     panics.on_coroutine(fn, monad_name='ResilientSync', method='run')
+    params = inspect.signature(fn).parameters
     try:
-        return fn(value)
+        return fn() if len(params) == 0 else fn(value)
     except Exception as exc:
         if isinstance(exc, MonadError):
             raise exc
         return Uncaught(exc)
 
 
-def _make_effect(val: A) -> Callable[[], A]:
+def _make_effect(val):
     """To prevent lambda from updating the reference when it is reassigned  in a loop"""
     return lambda: val
 
 
-_SyncSub = TypeVar('_SyncSub', bound=_ResilientSync)
+class ResilientSync(Generic[A]):
+    __slots__ = ('_effect', '_past')
 
-
-class ResilientSyncCont(_ResilientSync[B]):
-    """Use only for typing purposes. To create monads, use the 'of' and 'unit' functions and chained methods"""
-
-    __slots__ = ('_past',)
-
-    def __init__(self, effect: Callable[[A], B], past: _SyncSub):
-        super().__init__(effect)
+    def __init__(self, effect: Callable[..., A], past: Optional['ResilientSync[Any]'] = None):
+        panics.on_coroutine(effect, monad_name=self.__class__.__name__, method='__init__')
+        self._effect = effect
         self._past = past
 
     @property
-    def effect(self) -> Callable[[A], B]:
+    def effect(self) -> Callable[..., A]:
         return self._effect
 
     @property
-    def past(self) -> _SyncSub:
+    def past(self) -> 'ResilientSync[Any]':
         return self._past
 
-    def run(
-        self,
-        rebuild: bool = False,
-        steps: Optional[int] = None
-    ) -> Report[Union[B, Uncaught], Optional['ResilientSyncCont']]:
+    def chain(self, fn: Callable[[A], Union['ResilientSync[B]', B]]) -> 'ResilientSync[B]':
+        """
+            Combines the logic of both 'map' and 'bind' in regular monads.
+            :raises MonadError: panics on coroutine function
+        """
+        panics.on_coroutine(fn, monad_name=self.__class__.__name__, method='chain')
+        return self.__class__(specs.continuer_sync(fn, bad_evaluator=TUtils.is_bad), past=self)
+
+    def catch(self, fn: Callable[[Exc], Union['ResilientSync[B]', B]]) -> 'ResilientSync[B]':
+        """
+            Handles errors(Exception heirs) that occurred earlier in the chain.
+            :raises MonadError: panics on coroutine function
+        """
+        panics.on_coroutine(fn, monad_name=self.__class__.__name__, method='catch')
+        return self.__class__(specs.catcher_sync(fn), past=self)
+
+    def ensure(self, fn: Callable[[], None]) -> 'ResilientSync[A]':
+        """
+            Guaranteed to execute the function-parameter, similar to try finally.
+            :raises MonadError: panics on coroutine function
+        """
+        panics.on_coroutine(fn, monad_name=self.__class__.__name__, method='ensure')
+        return self.__class__(specs.ensurer_sync(fn), past=self)
+
+    def run(self, rebuild: bool = False, steps: Optional[int] = None) -> Report[A, Optional['ResilientSync[Any]']]:
         """
             Starts the chain
             :arg rebuild: restore the shortened chain(on failure) and identify the source of the failure
             :arg steps: positive integer(optional), number of steps for partial execution
             :raises MonadError: violations of monadic contracts
         """
-        panics.on_bad_steps_parameter(steps, monad_name='ResilientSync', method='chain starter method')
-        persist_prime, cons = _unwind(persist=self)
-        report_prime = persist_prime.run(rebuild=rebuild)
-        result, restored = report_prime.result, report_prime.chain_from_failure
-        faulty, last_success = report_prime.faulty, report_prime.last_success
-
-        first_cont_index, last_cont_index = get_indexes_for_execution(steps, inverted_cons=cons)
-        for i in range(first_cont_index, last_cont_index, -1):
-            result_new, restored_new = _execute(result, cons[i]), None
-            faulty_new, last_success_new = None, None
-            if isinstance(result_new, (ResilientSyncPrime, ResilientSyncCont)):
-                rpt = result_new.run(rebuild=rebuild)
-                result_new, restored_new = rpt.result, rpt.chain_from_failure
-                faulty_new, last_success_new = rpt.faulty, rpt.last_success
+        result, restored, faulty, last_success = None, None, None, None
+        cls = self.__class__
+        funcs = _unwind(persist=self)
+        first_index, last_index = specs.get_indexes_for_execution(steps, inverted_funcs=funcs)
+        for i in range(first_index, last_index, -1):
+            result_new = _execute(funcs[i], result)  # since the first func has no params, we can safely pass None
+            restored_new, faulty_new, last_success_new = None, None, None
+            if isinstance(result_new, cls):
+                report = result_new.run(rebuild=rebuild)
+                result_new, restored_new = report.result, report.chain_from_failure
+                faulty_new, last_success_new = report.faulty, report.last_success
 
             if rebuild:
                 if restored_new:
@@ -230,11 +112,11 @@ class ResilientSyncCont(_ResilientSync[B]):
                     restored, faulty, last_success = restored_new, faulty_new, last_success_new
                 elif isinstance(result_new, Uncaught) or TUtils.is_bad(result_new):
                     if restored is None:
-                        prime = ResilientSyncPrime(_make_effect(result))
-                        restored, faulty = ResilientSyncCont(cons[i], past=prime), _extract_from_closure(cons[i])
+                        prime = cls(_make_effect(result))
+                        restored, faulty = cls(funcs[i], past=prime), specs.get_origin(funcs[i])
                         last_success = result
                     else:
-                        restored = ResilientSyncCont(cons[i], past=restored)
+                        restored = cls(funcs[i], past=restored)
                 else:
                     restored, faulty, last_success = None, None, result_new
             result = result_new
@@ -242,31 +124,31 @@ class ResilientSyncCont(_ResilientSync[B]):
         return Report(result, chain_from_failure=restored, faulty=faulty, last_success=last_success)
 
 
-def of(value: A) -> ResilientSyncPrime[A]:
+def of(value: A) -> ResilientSync[A]:
     """
         Lazy monad for resilient SYNC ONLY effects.
         Resilient means, that if there is a failure in the chain, it can return a short chain from the point of failure.
         Automatically catches errors and wraps them in an 'Uncaught' object.
         Works with bad 'Triple' and 'Uncaught' entities using the short-circuit principle.
     """
-    return ResilientSyncPrime(lambda: value)
+    return ResilientSync(lambda: value)
 
 
-def unit(fn: Callable[[], A]) -> ResilientSyncPrime[A]:
+def unit(fn: Callable[[], A]) -> ResilientSync[A]:
     """
        Lazy monad for resilient SYNC ONLY effects.
        Resilient means, that if there is a failure in the chain, it can return a short chain from the point of failure.
        Automatically catches errors and wraps them in an 'Uncaught' object.
        Works with bad 'Triple' and 'Uncaught' entities using the short-circuit principle.
     """
-    return ResilientSyncPrime(fn)
+    return ResilientSync(fn)
 
 
 def insist(
-        resilient: Union[ResilientSyncPrime[A], ResilientSyncCont[A]],
+        resilient: ResilientSync[A],
         attempts: int = 1,
         pause_between: Union[int, float] = 0
-) -> Report[Union[A, Uncaught[Exc]], Optional['ResilientSyncCont']]:
+) -> Report[A, Optional[ResilientSync]]:
     """Makes 'attempts' to execute a 'resilient' chain with 'pause_between' intervals between them"""
     chain, report = resilient, Report(None, None, None, None)
 
