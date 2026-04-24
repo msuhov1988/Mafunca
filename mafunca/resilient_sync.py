@@ -9,15 +9,16 @@ from mafunca.common.exceptions import MonadError
 import mafunca.common._panics as panics  # noqa
 import mafunca.common._resilient_specs as specs # noqa
 
-__all__ = ['of', 'unit', 'insist', 'ResilientSync']
+__all__ = ['of', 'unit', 'insist', 'ResilientSync', 'DefaultBad']
 
 _Exception = TypeVar('_Exception', bound=Exception)
 _Ok = TypeVar('_Ok')
 _Result = TypeVar('_Result')
 
 
-_Bad = TypeVar('_Bad', bound=Union[Left, Nothing, Uncaught], default=Any)
-_NewBad = TypeVar('_NewBad', bound=Union[Left, Nothing, Uncaught], default=Any)
+DefaultBad = Union[Left, Nothing, Uncaught]
+_Bad = TypeVar('_Bad', bound=DefaultBad)
+_NewBad = TypeVar('_NewBad', bound=DefaultBad)
 
 
 def _unwind(persist: 'ResilientSync') -> List[Callable]:

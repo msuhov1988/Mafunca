@@ -1,20 +1,29 @@
-from typing import TypeVar, Generic, Union, Optional, List, Any
+from typing import TypeVar, Generic, Union, Optional, List, Any, Never
 from collections.abc import Callable, Awaitable
 import inspect
 import asyncio
 
-from mafunca.triple import TUtils
+from mafunca.triple import TUtils, Left, Nothing
 from mafunca.common.resilient_support import Uncaught, Report
 from mafunca.common.exceptions import MonadError
 import mafunca.common._resilient_specs as specs # noqa
 
 
-__all__ = ['of', 'unit', 'insist', 'Resilient']
+__all__ = ['of', 'unit', 'insist', 'Resilient', 'DefaultBad']
 
 
-Exc = TypeVar('Exc', bound=Exception)
-A = TypeVar('A')
-B = TypeVar('B')
+_Exception = TypeVar('_Exception', bound=Exception)
+_Ok = TypeVar('_Ok')
+_Result = TypeVar('_Result')
+_AwaitableOk = Union[Awaitable[_Ok], _Ok]
+_AwaitableResult = Union[Awaitable[_Result], _Result]
+
+
+DefaultBad = Union[Left, Nothing, Uncaught]
+_Bad = TypeVar('_Bad', bound=DefaultBad)
+_NewBad = TypeVar('_NewBad', bound=DefaultBad)
+_AwaitableBad = Union[Awaitable[_Bad], _Bad]
+_AwaitableNewBad = Union[Awaitable[_NewBad], _NewBad]
 
 
 def _unwind(persist: 'Resilient') -> List[Callable]:
@@ -50,34 +59,48 @@ def _make_effect(val):
     return lambda: val
 
 
-class Resilient(Generic[A]):
+class Resilient(Generic[_Ok, _Bad]):
     __slots__ = ('_effect', '_past')
 
-    def __init__(self, effect: Callable[..., A], past: Optional['Resilient[Any]'] = None):
+    def __init__(
+        self,
+        effect: Callable[..., Union[_AwaitableOk, _AwaitableBad]],
+        past: Optional['Resilient[Any, Any]'] = None
+    ):
         self._effect = effect
         self._past = past
 
     @property
-    def effect(self) -> Callable[..., A]:
+    def effect(self) -> Callable[..., Union[_AwaitableOk, _AwaitableBad]]:
         return self._effect
 
     @property
-    def past(self) -> 'Resilient[Any]':
+    def past(self) -> 'Resilient[Any, Any]':
         return self._past
 
-    def chain(self, fn: Callable[[A], Union['Resilient[B]', Awaitable[B], B]]) -> 'Resilient[B]':
+    def chain(
+        self,
+        fn: Callable[[_Ok], Union['Resilient[_Result, _NewBad]', _AwaitableResult, _AwaitableNewBad]]
+    ) -> 'Resilient[_Result, Union[_Bad, _NewBad]]':
         """Combines the logic of both 'map' and 'bind' in regular monads"""
         return self.__class__(specs.continuer(fn, bad_evaluator=TUtils.is_bad), past=self)
 
-    def catch(self, fn: Callable[[Exc], Union['Resilient[B]', Awaitable[B], B]]) -> 'Resilient[B]':
+    def catch(
+        self,
+        fn: Callable[[_Exception], Union['Resilient[_Result, _NewBad]', _AwaitableResult, _AwaitableNewBad]]
+    ) -> 'Resilient[_Result, Union[_Bad, _NewBad]]':
         """Handles errors(Exception heirs) that occurred earlier in the chain."""
         return self.__class__(specs.catcher(fn), past=self)
 
-    def ensure(self, fn: Callable[[], Union[Awaitable[None], None]]) -> 'Resilient[A]':
+    def ensure(self, fn: Callable[[], Union[Awaitable[None], None]]) -> 'Resilient[_Ok, _Bad]':
         """Guaranteed to execute the function-parameter, similar to try finally."""
         return self.__class__(specs.ensurer(fn), past=self)
 
-    async def _launch(self, rebuild: bool = False, steps: Optional[int] = None) -> Report[A, Optional['Resilient']]:
+    async def _launch(
+        self,
+        rebuild: bool = False,
+        steps: Optional[int] = None
+    ) -> Report[_Ok, Optional['Resilient[Any, Any]']]:
         result, restored, faulty, last_success = None, None, None, None
         cls = self.__class__
         funcs = _unwind(persist=self)
@@ -112,7 +135,7 @@ class Resilient(Generic[A]):
         rebuild: bool = False,
         steps: Optional[int] = None,
         delay: Optional[Union[int, float]] = None
-    ) -> Report[A, Optional['Resilient']]:
+    ) -> Report[_Ok, Optional['Resilient[Any, Any]']]:
         """
             Async - starts the chain.
             :arg rebuild: restore the shortened chain(on failure) and identify the source of the failure
@@ -132,7 +155,7 @@ class Resilient(Generic[A]):
         return asyncio.create_task(self._launch(rebuild=rebuild))
 
 
-def of(value: A) -> Resilient[A]:
+def of(value: _Ok) -> Resilient[_Ok, Never]:
     """
         Lazy monad for resilient async effects.
         Can accept both async and sync functions.
@@ -143,7 +166,7 @@ def of(value: A) -> Resilient[A]:
     return Resilient(lambda: value)
 
 
-def unit(fn: Callable[[], Union[Awaitable[A], A]]) -> Resilient[A]:
+def unit(fn: Callable[[], Union[Awaitable[_Ok], _Ok, _Bad]]) -> Resilient[_Ok, _Bad]:
     """
         Lazy monad for resilient async effects.
         Can accept both async and sync functions.
@@ -155,11 +178,11 @@ def unit(fn: Callable[[], Union[Awaitable[A], A]]) -> Resilient[A]:
 
 
 async def insist(
-        resilient: Resilient[A],
+        resilient: Resilient[_Ok, _Bad],
         attempts: int = 1,
         delay_for_attempt: Union[int, float] = None,
         pause_between: Union[int, float] = 0
-) -> Report[A, Optional[Resilient]]:
+) -> Report[_Ok, Optional[Resilient]]:
     """
         Makes 'attempts' with 'delay_for_attempt' to execute a 'resilient' chain
         with 'pause_between' intervals between them
