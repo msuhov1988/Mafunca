@@ -17,6 +17,15 @@ async def plus_five(val):
 class TestResilient(unittest.IsolatedAsyncioTestCase):
 
     async def test_ordinary_chains1(self):
+        rp = await of(1).run()
+        self.assertEqual(rp.result, 1)
+
+        rp = await of(1).run(rebuild=True)
+        self.assertEqual(rp.result, rp.last_success)
+
+        rp = await of(1).chain(plus_five).run(rebuild=True)
+        self.assertEqual(rp.result, rp.last_success)
+
         rp = await of(10).chain(plus_five).chain(lambda v: of(v ** 2)).run()
         self.assertIsInstance(rp, Report)
         self.assertEqual(rp.chain_from_failure, None)
@@ -43,6 +52,11 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
     async def test_catching_errors_uncaught(self):
         async def raiser():
             raise TypeError('error')
+
+        resilient = unit(raiser).chain(lambda v: v + 1).chain(lambda v: v + 1)
+        rp = await resilient.run(rebuild=True)
+        self.assertEqual(rp.chain_from_failure is resilient, True)
+        self.assertEqual(rp.faulty == raiser, True)
 
         rp = await unit(raiser).chain(lambda v: v + 1).chain(plus_five).run()
         err = rp.result
@@ -476,9 +490,16 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kit, [2, 1, 0])
 
     async def test_partial_execution_steps_violation(self):
+        rp = await of(100).run(steps=0)
+        self.assertEqual(rp.result, 100)
+
         resilient = of(0).chain(lambda v: v + 1)
+        rp = await resilient.run(steps=-1)
+        self.assertEqual(rp.result, 0)
         rp = await resilient.run(steps=0)
-        self.assertEqual(rp.result, None)
+        self.assertEqual(rp.result, 0)
+        rp = await resilient.run(steps=1)
+        self.assertEqual(rp.result, 0)
         rp = await resilient.run(steps=-10)
         self.assertEqual(rp.chain_from_failure, None)
 

@@ -1,4 +1,4 @@
-from typing import TypeVar, Generic, overload
+from typing import TypeVar, Generic, Union
 from collections.abc import Callable
 
 from mafunca.triple import Left, Nothing, TUtils
@@ -6,40 +6,34 @@ from mafunca.common.exceptions import MonadError
 import mafunca.common._panics as panics # noqa
 
 
-__all__ = ['EffSync']
+__all__ = ['EffSync', 'DefaultBad']
 
 
-A = TypeVar('A')
-B = TypeVar('B')
-C = TypeVar('C')
+_Exception = TypeVar('_Exception', bound=Exception)
+_Ok = TypeVar('_Ok')
+_Result = TypeVar('_Result')
 
-L = TypeVar('L')
-Exc = TypeVar('Exc', bound=Exception)
+DefaultBad = Union[Left, Nothing]
+_Bad = TypeVar('_Bad', bound=DefaultBad)
+_NewBad = TypeVar('_NewBad', bound=DefaultBad)
 
 
-class EffSync(Generic[A]):
+class EffSync(Generic[_Ok, _Bad]):
     """Lazy monad for sync effects.
        It can work with bad 'Triple' entities using the short-circuit principle
     """
 
     __slots__ = ["_effect"]
 
-    def __init__(self, effect: Callable[[], A]):
+    def __init__(self, effect: Callable[[], Union[_Ok, _Bad]]):
         panics.on_coroutine(effect, monad_name=self.__class__.__name__, method='__init__')
         self._effect = effect
 
     @property
-    def effect(self) -> Callable[[], A]:
+    def effect(self) -> Callable[[], Union[_Ok, _Bad]]:
         return self._effect
 
-    @overload
-    def map(self: 'EffSync[Left[L]]', fn: Callable[[B], C]) -> 'EffSync[Left[L]]': pass
-    @overload
-    def map(self: 'EffSync[Nothing]', fn: Callable[[B], C]) -> 'EffSync[Nothing]': pass
-    @overload
-    def map(self, fn: Callable[[A], B]) -> 'EffSync[B]': pass
-
-    def map(self, fn):
+    def map(self, fn: Callable[[_Ok], Union[_Result, _NewBad]]) -> 'EffSync[_Result, Union[_Bad, _NewBad]]':
         """
            Applies a sync function that returns a non-EffSync entity.
            :raises MonadError: violation of the contract
@@ -55,14 +49,7 @@ class EffSync(Generic[A]):
             return current
         return EffSync(new_effect)
 
-    @overload
-    def bind(self: 'EffSync[Left[L]]', fn: Callable[[B], 'EffSync[C]']) -> 'EffSync[Left[L]]': pass
-    @overload
-    def bind(self: 'EffSync[Nothing]', fn: Callable[[B], 'EffSync[C]']) -> 'EffSync[Nothing]': pass
-    @overload
-    def bind(self, fn: Callable[[A], 'EffSync[B]']) -> 'EffSync[B]': pass
-
-    def bind(self, fn):
+    def bind(self, fn: Callable[[_Ok], 'EffSync[_Result, _NewBad]']) -> 'EffSync[_Result, Union[_Bad, _NewBad]]':
         """
            Applies a sync function that returns an EffSync entity.
            :raises MonadError: violation of the contract
@@ -79,12 +66,10 @@ class EffSync(Generic[A]):
             return current
         return EffSync(new_effect)
 
-    @overload
-    def catch(self, fn: Callable[[Exc], 'EffSync[B]']) -> 'EffSync[B]': pass
-    @overload
-    def catch(self, fn: Callable[[Exc], B]) -> 'EffSync[B]': pass
-
-    def catch(self, fn):
+    def catch(
+        self,
+        fn: Callable[[_Exception], Union['EffSync[_Result, _NewBad]', _Result, _NewBad]]
+    ) -> 'EffSync[_Result, Union[_Bad, _NewBad]]':
         """
            Catch errors(Exception heirs) in all deeper nested functions.
            It can return both EffSync and non-EffSync entities.
@@ -104,7 +89,7 @@ class EffSync(Generic[A]):
                 return current
         return EffSync(new_effect)
 
-    def ensure(self, fn: Callable[[], None]) -> 'EffSync[A]':
+    def ensure(self, fn: Callable[[], None]) -> 'EffSync[_Ok, _Bad]':
         """Guaranteed to execute the function-parameter, similar to try finally"""
         panics.on_coroutine(fn, monad_name=self.__class__.__name__, method='ensure')
 
@@ -115,12 +100,12 @@ class EffSync(Generic[A]):
                 fn()
         return EffSync(new_effect)
 
-    def run(self) -> A:
+    def run(self) -> Union[_Ok, _Bad]:
         """Starts the chain"""
         return self.effect()
 
     @staticmethod
-    def of(value: A) -> 'EffSync[A]':
+    def of(value: Union[_Result, _NewBad]) -> 'EffSync[_Result, _NewBad]':
         """Wraps a non-EffSync value in the container. No inspections here."""
         return EffSync(lambda: value)
 

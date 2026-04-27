@@ -9,6 +9,15 @@ from mafunca.common.resilient_support import Report, Uncaught
 class TestResilientSync(unittest.TestCase):
 
     def test_ordinary_chains1(self):
+        rp = of(1).run()
+        self.assertEqual(rp.result, 1)
+
+        rp = of(1).run(rebuild=True)
+        self.assertEqual(rp.result, rp.last_success)
+
+        rp = of(1).chain(lambda v: v + 5).run(rebuild=True)
+        self.assertEqual(rp.result, rp.last_success)
+
         rp = of(10).chain(lambda v: v + 5).chain(lambda v: of(v ** 2)).run()
         self.assertIsInstance(rp, Report)
         self.assertEqual(rp.chain_from_failure, None)
@@ -35,6 +44,11 @@ class TestResilientSync(unittest.TestCase):
     def test_catching_errors_uncaught(self):
         def raiser():
             raise TypeError('error')
+
+        resilient = unit(raiser).chain(lambda v: v + 1).chain(lambda v: v + 1)
+        rp = resilient.run(rebuild=True)
+        self.assertEqual(rp.chain_from_failure is resilient, True)
+        self.assertEqual(rp.faulty is raiser, True)
 
         rp = unit(raiser).chain(lambda v: v + 1).chain(lambda v: v ** 2).run()
         err = rp.result
@@ -453,9 +467,15 @@ class TestResilientSync(unittest.TestCase):
         self.assertEqual(kit, [2, 1, 0])
 
     def test_partial_execution_steps_violation(self):
+        rp = of(100).run(steps=0)
+        self.assertEqual(rp.result, 100)
         resilient = of(0).chain(lambda v: v + 1)
+        rp = resilient.run(steps=-1)
+        self.assertEqual(rp.result, 0)
         rp = resilient.run(steps=0)
-        self.assertEqual(rp.result, None)
+        self.assertEqual(rp.result, 0)
+        rp = resilient.run(steps=1)
+        self.assertEqual(rp.result, 0)
         rp = resilient.run(steps=-10)
         self.assertEqual(rp.chain_from_failure, None)
 

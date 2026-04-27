@@ -1,4 +1,4 @@
-from typing import TypeVar, Generic, overload, Union, Optional
+from typing import TypeVar, TypeAlias, Generic, Union, Optional
 from collections.abc import Callable, Awaitable
 import inspect
 import asyncio
@@ -8,23 +8,34 @@ from mafunca.common.exceptions import MonadError
 import mafunca.common._panics as panics # noqa
 
 
-__all__ = ['Eff']
+__all__ = ['Eff', 'DefaultBad']
 
 
-A = TypeVar('A')
-B = TypeVar('B')
-C = TypeVar('C')
-
-L = TypeVar('L')
-Exc = TypeVar('Exc', bound=Exception)
-T = TypeVar('T')
+_Exception = TypeVar('_Exception', bound=Exception)
+_Ok = TypeVar('_Ok')
+_Result = TypeVar('_Result')
+_AwaitableOk = Union[Awaitable[_Ok], _Ok]
+_AwaitableResult = Union[Awaitable[_Result], _Result]
 
 
-async def _maybe_await(obj: Union[Awaitable[T], T]) -> T:
+DefaultBad = Union[Left, Nothing]
+_Bad = TypeVar('_Bad', bound=DefaultBad)
+_NewBad = TypeVar('_NewBad', bound=DefaultBad)
+_AwaitableBad = Union[Awaitable[_Bad], _Bad]
+_AwaitableNewBad = Union[Awaitable[_NewBad], _NewBad]
+
+_T = TypeVar('_T')
+
+
+async def _maybe_await(obj: Union[Awaitable[_T], _T]) -> _T:
     return await obj if inspect.isawaitable(obj) else obj
 
 
-class Eff(Generic[A]):
+_Effect: TypeAlias = Callable[[], Union[_Ok, _Bad, Awaitable[_Ok], Awaitable[_Bad]]]
+_AwaitableSelf: TypeAlias = Union[Awaitable['Eff[_Result, _NewBad]'], 'Eff[_Result, _NewBad]']
+
+
+class Eff(Generic[_Ok, _Bad]):
     """Lazy monad for async effects.
        It can work with bad 'Triple' entities using the short-circuit principle.
        Can work with both synchronous and asynchronous functions.
@@ -32,23 +43,17 @@ class Eff(Generic[A]):
 
     __slots__ = ["_effect"]
 
-    def __init__(self, effect: Callable[[], A]):
+    def __init__(self, effect: _Effect):
         self._effect = effect
 
     @property
-    def effect(self) -> Callable[[], A]:
+    def effect(self) -> _Effect:
         return self._effect
 
-    @overload
-    def map(self: 'Eff[Left[L]]', fn: Callable[[B], C]) -> 'Eff[Left[L]]': pass
-    @overload
-    def map(self: 'Eff[Nothing]', fn: Callable[[B], C]) -> 'Eff[Nothing]': pass
-    @overload
-    def map(self, fn: Callable[[A], Awaitable[B]]) -> 'Eff[B]': pass
-    @overload
-    def map(self, fn: Callable[[A], B]) -> 'Eff[B]': pass
-
-    def map(self, fn):
+    def map(
+        self,
+        fn: Callable[[_Ok], Union[_AwaitableResult, _AwaitableNewBad]]
+    ) -> 'Eff[_Result, Union[_Bad, _NewBad]]':
         """
            Applies a function that returns a non-Eff entity.
            It can accept both async and sync functions. Async functions are awaited.
@@ -64,14 +69,7 @@ class Eff(Generic[A]):
             return current
         return Eff(new_effect)
 
-    @overload
-    def map_to_thread(self: 'Eff[Left[L]]', fn: Callable[[B], C]) -> 'Eff[Left[L]]': pass
-    @overload
-    def map_to_thread(self: 'Eff[Nothing]', fn: Callable[[B], C]) -> 'Eff[Nothing]': pass
-    @overload
-    def map_to_thread(self, fn: Callable[[A], B]) -> 'Eff[B]': pass
-
-    def map_to_thread(self, fn):
+    def map_to_thread(self, fn: Callable[[_Ok], Union[_Result, _NewBad]]) -> 'Eff[_Result, Union[_Bad, _NewBad]]':
         """
            Applies a SYNC ONLY function that returns a non-Eff entity.
            Executes it in a separate thread.
@@ -89,16 +87,7 @@ class Eff(Generic[A]):
 
         return Eff(new_effect)
 
-    @overload
-    def bind(self: 'Eff[Left[L]]', fn: Callable[[B], C]) -> 'Eff[Left[L]]': pass
-    @overload
-    def bind(self: 'Eff[Nothing]', fn: Callable[[B], C]) -> 'Eff[Nothing]': pass
-    @overload
-    def bind(self, fn: Callable[[A], Awaitable['Eff[B]']]) -> 'Eff[B]': pass
-    @overload
-    def bind(self, fn: Callable[[A], 'Eff[B]']) -> 'Eff[B]': pass
-
-    def bind(self, fn):
+    def bind(self, fn: Callable[[_Ok], _AwaitableSelf]) -> 'Eff[_Result, Union[_Bad, _NewBad]]':
         """
            Applies a function that returns an Eff entity.
            It can accept both async and sync functions. Async functions are awaited.
@@ -115,14 +104,7 @@ class Eff(Generic[A]):
             return current
         return Eff(new_effect)
 
-    @overload
-    def bind_to_thread(self: 'Eff[Left[L]]', fn: Callable[[B], C]) -> 'Eff[Left[L]]': pass
-    @overload
-    def bind_to_thread(self: 'Eff[Nothing]', fn: Callable[[B], C]) -> 'Eff[Nothing]': pass
-    @overload
-    def bind_to_thread(self, fn: Callable[[A], 'Eff[B]']) -> 'Eff[B]': pass
-
-    def bind_to_thread(self, fn):
+    def bind_to_thread(self, fn: Callable[[_Ok], 'Eff[_Result, _NewBad]']) -> 'Eff[_Result, Union[_Bad, _NewBad]]':
         """
            Applies a SYNC ONLY function that returns an Eff entity.
            Executes it in a separate thread - ONLY inner function inside Eff.
@@ -141,16 +123,10 @@ class Eff(Generic[A]):
 
         return Eff(new_effect)
 
-    @overload
-    def catch(self, fn: Callable[[Exc], Awaitable['Eff[B]']]) -> 'Eff[B]': pass
-    @overload
-    def catch(self, fn: Callable[[Exc], 'Eff[B]']) -> 'Eff[B]': pass
-    @overload
-    def catch(self, fn: Callable[[Exc], Awaitable[B]]) -> 'Eff[B]': pass
-    @overload
-    def catch(self, fn: Callable[[Exc], B]) -> 'Eff[B]': pass
-
-    def catch(self, fn):
+    def catch(
+        self,
+        fn: Callable[[_Exception], Union[_AwaitableSelf, _AwaitableResult, _AwaitableNewBad]]
+    ) -> 'Eff[_Result, Union[_Bad, _NewBad]]':
         """
            Catch errors(Exception heirs) in all deeper nested functions.
            It can return both Eff and non-Eff entities.
@@ -170,7 +146,7 @@ class Eff(Generic[A]):
                 return current
         return Eff(new_effect)
 
-    def ensure(self, fn: Callable[[], Union[Awaitable[None], None]]) -> 'Eff[A]':
+    def ensure(self, fn: Callable[[], Union[Awaitable[None], None]]) -> 'Eff[_Ok, _Bad]':
         """Guaranteed to execute the function-parameter, similar to try finally.
            It can accept both async and sync functions. Async functions are awaited.
         """
@@ -189,7 +165,7 @@ class Eff(Generic[A]):
         panics.on_sync(self.effect, monad_name=self.__class__.__name__, method='to_task')
         return asyncio.create_task(self.effect())
 
-    async def run(self, delay: Optional[Union[int, float]] = None) -> A:
+    async def run(self, delay: Optional[Union[int, float]] = None) -> Union[_Ok, _Bad]:
         """
            Async - starts the chain.
            :raises TimeoutError: delay is not None and the waiting time has been exceeded.
@@ -201,7 +177,7 @@ class Eff(Generic[A]):
                 return await _maybe_await(self.effect())
 
     @staticmethod
-    def of(value: A) -> 'Eff[A]':
+    def of(value: Union[_Result, _NewBad]) -> 'Eff[_Result, _NewBad]':
         """Wraps a non-Eff value in the container. No inspections here."""
         return Eff(lambda: value)
 

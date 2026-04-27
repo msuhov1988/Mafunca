@@ -1,5 +1,4 @@
-from typing import TypeVar, Generic, Union, Optional, List, Any, Never
-import inspect
+from typing import TypeVar, TypeAlias, Generic, Union, Optional, List, Tuple, Any
 from collections.abc import Callable
 from time import sleep
 
@@ -20,26 +19,31 @@ DefaultBad = Union[Left, Nothing, Uncaught]
 _Bad = TypeVar('_Bad', bound=DefaultBad)
 _NewBad = TypeVar('_NewBad', bound=DefaultBad)
 
-
-def _unwind(persist: 'ResilientSync') -> List[Callable]:
-    """Unwinding the chain to the first effect"""
-    current, effects = persist, []
-    while isinstance(current, ResilientSync):
-        effects.append(current.effect)
-        current = current.past
-    return effects
+_PrimeEffect: TypeAlias = Callable[[], Union[_Ok, _Bad]]
+_ContEffect: TypeAlias = Callable[[Any], Union[_Ok, _Bad]]
+_Effect = Union[_PrimeEffect, _ContEffect]
 
 
-def _execute(fn, value=None):
+def _execute_prime(fn):
     """
-        Execute function from chain with catching errors.
-        MonadError is not suppressed.
-        :raises MonadError: panics on coroutine function
+       Execute prime effect from chain with catching errors.
+       :raises MonadError: MonadError is not suppressed
     """
-    panics.on_coroutine(fn, monad_name='ResilientSync', method='run')
-    params = inspect.signature(fn).parameters
     try:
-        return fn() if len(params) == 0 else fn(value)
+        return fn()
+    except Exception as exc:
+        if isinstance(exc, MonadError):
+            raise exc
+        return Uncaught(exc)
+
+
+def _execute_continuation(fn, value):
+    """
+        Execute continuation effect from chain with catching errors.
+        :raises MonadError: MonadError is not suppressed
+    """
+    try:
+        return fn(value)
     except Exception as exc:
         if isinstance(exc, MonadError):
             raise exc
@@ -54,13 +58,13 @@ def _make_effect(val):
 class ResilientSync(Generic[_Ok, _Bad]):
     __slots__ = ('_effect', '_past')
 
-    def __init__(self, effect: Callable[..., Union[_Ok, _Bad]], past: Optional['ResilientSync[Any, Any]'] = None):
+    def __init__(self, effect: _Effect, past: Optional['ResilientSync[Any, Any]'] = None):
         panics.on_coroutine(effect, monad_name=self.__class__.__name__, method='__init__')
         self._effect = effect
         self._past = past
 
     @property
-    def effect(self) -> Callable[..., Union[_Ok, _Bad]]:
+    def effect(self) -> _Effect:
         return self._effect
 
     @property
@@ -97,6 +101,19 @@ class ResilientSync(Generic[_Ok, _Bad]):
         panics.on_coroutine(fn, monad_name=self.__class__.__name__, method='ensure')
         return self.__class__(specs.ensurer_sync(fn), past=self)
 
+    def _unwind(self) -> Tuple[_Effect, List[_Effect]]:
+        """For inner usage only. Unwinding the chain to the first effect."""
+        prime, continuations = None, []
+        current, cls = self, self.__class__
+        while True:
+            previous = current.past
+            if not isinstance(previous, cls):
+                prime = current.effect
+                break
+            continuations.append(current.effect)
+            current = previous
+        return prime, continuations
+
     def run(
         self,
         rebuild: bool = False,
@@ -108,12 +125,16 @@ class ResilientSync(Generic[_Ok, _Bad]):
             :arg steps: positive integer(optional), number of steps for partial execution
             :raises MonadError: violations of monadic contracts
         """
-        result, restored, faulty, last_success = None, None, None, None
         cls = self.__class__
-        funcs = _unwind(persist=self)
-        first_index, last_index = specs.get_indexes_for_execution(steps, inverted_funcs=funcs)
+        first_effect, cons = self._unwind()
+        result = _execute_prime(first_effect)
+        if rebuild and (isinstance(result, Uncaught) or TUtils.is_bad(result)):
+            return Report(result, chain_from_failure=self, faulty=first_effect, last_success=None)
+
+        restored, faulty, last_success = None, None, result if rebuild else None
+        first_index, last_index = specs.get_indexes_for_execution(steps, inverted_cons=cons)
         for i in range(first_index, last_index, -1):
-            result_new = _execute(funcs[i], result)  # since the first func has no params, we can safely pass None
+            result_new = _execute_continuation(cons[i], result)
             restored_new, faulty_new, last_success_new = None, None, None
             if isinstance(result_new, cls):
                 report = result_new.run(rebuild=rebuild)
@@ -127,10 +148,10 @@ class ResilientSync(Generic[_Ok, _Bad]):
                 elif isinstance(result_new, Uncaught) or TUtils.is_bad(result_new):
                     if restored is None:
                         prime = cls(_make_effect(result))
-                        restored, faulty = cls(funcs[i], past=prime), specs.get_origin(funcs[i])
+                        restored, faulty = cls(cons[i], past=prime), specs.get_origin(cons[i])
                         last_success = result
                     else:
-                        restored = cls(funcs[i], past=restored)
+                        restored = cls(cons[i], past=restored)
                 else:
                     restored, faulty, last_success = None, None, result_new
             result = result_new
@@ -138,7 +159,7 @@ class ResilientSync(Generic[_Ok, _Bad]):
         return Report(result, chain_from_failure=restored, faulty=faulty, last_success=last_success)
 
 
-def of(value: _Ok) -> ResilientSync[_Ok, Never]:
+def of(value: Union[_Ok, _Bad]) -> ResilientSync[_Ok, _Bad]:
     """
         Lazy monad for resilient SYNC ONLY effects.
         Resilient means, that if there is a failure in the chain, it can return a short chain from the point of failure.

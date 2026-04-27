@@ -93,10 +93,11 @@ def get_origin(closure: Callable) -> Callable:
     return origin
 
 
-def get_indexes_for_execution(steps: Optional[int], inverted_funcs: List) -> Tuple[int, int]:
+def get_indexes_for_execution(steps: Optional[int], inverted_cons: List) -> Tuple[int, int]:
     """Processing of the steps parameter in resilient monads"""
-    chain_length = len(inverted_funcs)
+    chain_length = len(inverted_cons) + 1  # +1 since prime always comes first, in addition to inverted_cons
     bounded_steps = chain_length if steps is None or steps > chain_length else steps
-    first_cont_index = len(inverted_funcs) - 1  # inverted_funcs is an inverted list, the last is the first
-    last_cont_index = first_cont_index - bounded_steps
+    bounded_steps_without_prime = bounded_steps - 1
+    first_cont_index = len(inverted_cons) - 1  # inverted_cons is an inverted list, the last is the first
+    last_cont_index = first_cont_index - bounded_steps_without_prime
     return first_cont_index, last_cont_index

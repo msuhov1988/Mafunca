@@ -277,6 +277,7 @@ It allows you to describe side effects within a regular function, keeping it 'pu
 ```python
 from mafunca.triple import impure
 from mafunca.eff_sync import EffSync
+from mafunca.eff_sync import DefaultBad  # Left | Nothing, type alias
 
 @impure
 def database_communication(number: int): ...
@@ -285,7 +286,7 @@ def database_communication(number: int): ...
 def smtp_communication(addresses): ...
 
 # this function remains 'pure'
-def ordinary_function(a: int) -> EffSync:
+def ordinary_function(a: int) -> EffSync[None, DefaultBad]:
     result = a ** 2
     return (
       EffSync(lambda: result)
@@ -329,15 +330,18 @@ from mafunca.eff_sync import EffSync
 #### The examples are "toy-like", but they reflect the essence
 ```python
 import asyncio
+from typing import Never
 
 from mafunca.eff import Eff
+from mafunca.eff import DefaultBad  # Left | Nothing
 from mafunca.eff_sync import EffSync
-from mafunca.triple import Left
+from mafunca.eff_sync import DefaultBad as DefaultBadSync  # Left | Nothing
+from mafunca.triple import Left, Nothing
 
 # short circuit on bad Triple entity
-eff = (
+eff: EffSync[int, DefaultBadSync] = (
   EffSync.of(0)
-  .map(lambda _: Left('error'))
+  .map(lambda v: Left('error') if v == 0 else Nothing())
   .bind(lambda x: EffSync(lambda: x + 1))
   .bind(lambda x: EffSync(lambda: x + 1))
 )
@@ -346,17 +350,17 @@ eff.run()  # Left(error)
 async def raiser():
    raise TypeError("error")
 
-async_eff = Eff(raiser).catch(lambda e: 10)
+async_eff: Eff[int, Never] = Eff(raiser).catch(lambda e: 10)
 asyncio.run(async_eff.run())  # 10, async_eff.run - async method
 
 
-async_eff = Eff(raiser).ensure(lambda: print("finally"))
+async_eff: Eff[None, Never] = Eff(raiser).ensure(lambda: print("finally"))
 asyncio.run(async_eff.run())  # the word will be printed despite the uncaught exception
 ```
 
 ## Resilient effects
 ### Description of resilient effects
-These effects are a further development of **Eff** and **EffSync**.  
+These effects are a further development of **Eff** and **EffSync**, but with some deviations from the classical model.  
 By default, **Eff** and **EffSync** short-circuit 'bad' **Triple** instances, pushing these values up until the calculation is complete.  
 This greatly increases the reliability of the functional chain:
 ```python
@@ -386,28 +390,32 @@ The resilient effects implemented here have this set of **FEATURES**.
 Usage:
 ```python
 # STRICTLY for synchronous effects
-from mafunca.resilient_sync import ResilientSyncPrime, ResilientSyncCont
+from mafunca.resilient_sync import ResilientSync
 from mafunca.resilient_sync import of, unit, insist
+
+from mafunca.triple import Left, Nothing
+from mafunca.common.resilient_support import Uncaught  # a special object that wraps unexpected exceptions
+from mafunca.resilient_sync import DefaultBad  # Left | Nothing | Uncaught, type alias
 ```
 ```python
 # for asynchronous effects, but it can also work with synchronous functions
-from mafunca.resilient import ResilientPrime, ResilientCont
+from mafunca.resilient import Resilient
 from mafunca.resilient import of, unit, insist
-```
-**ResilientSyncPrime** and **ResilientPrime** - the beginning of a chain - always contains a function of the form **Callable[[], A]** as in classical effects.  
-**ResilientSyncCont** and **ResilientCont** - continuation - created when passing the **Callable[[A], B]** function through chained methods.  
-These Prime-Cont pairs have an identical interface.  
-**IMPORTANT: Use these classes only for typing purposes. A typical usage pattern is as follows:**
+from mafunca.resilient import DefaultBad  # Left | Nothing | Uncaught, type alias
+``` 
+**Recommendation**: Use **ResilientSync** and **Resilient** classes only for typing purposes. A typical usage pattern:
 ```python
 # everything is the same for the synchronous module
-from mafunca.resilient import of, unit
+from typing import Never, Any
+from mafunca.resilient import of, unit, Resilient
+from mafunca.resilient import DefaultBad
 
-prime_one = of(10)            # ResilientPrime(lambda: 10)
-prime_two = unit(lambda: 10)  # ResilientPrime(lambda: 10)
+prime_one: Resilient[int, Never] = of(10)            # Resilient(lambda: 10)
+prime_two: Resilient[int, Never] = unit(lambda: 10)  # Resilient(lambda: 10)
 
 # So, you do not need to use these classes directly.
-resilient1 = of(some_value).chain(...).chain(...)       # ResilientCont(...)
-resilient2 = unit(some_function).chain(...).chain(...)  # ResilientCont(...)
+resilient1: Resilient[Any, DefaultBad] = of(some_value).chain(...).chain(...)
+resilient2 = unit(some_function).chain(...).chain(...) 
 ```
 Calling the **run** method for such monads always returns a special object instead of a direct result:
 ```python

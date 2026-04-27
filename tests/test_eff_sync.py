@@ -45,10 +45,10 @@ class TestEffSync(unittest.TestCase):
         # catching errors
         eff = (
             EffSync.of(0)
-            .map(error_raiser)
+            .map(lambda _: error_raiser())
             .catch(lambda _: 1)
             .bind(lambda x: EffSync(lambda: x + 1))
-            .map(error_raiser)
+            .map(lambda _: error_raiser())
             .catch(lambda _: EffSync(lambda: -10))
             .bind(lambda x: EffSync(lambda: x + 9))
         )
