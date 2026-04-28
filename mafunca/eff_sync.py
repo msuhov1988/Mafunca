@@ -1,4 +1,4 @@
-from typing import TypeVar, Generic, Union
+from typing import TypeVar, Generic, Union, Never
 from collections.abc import Callable
 
 from mafunca.triple import Left, Nothing, TUtils
@@ -105,8 +105,13 @@ class EffSync(Generic[_Ok, _Bad]):
         return self.effect()
 
     @staticmethod
-    def of(value: Union[_Result, _NewBad]) -> 'EffSync[_Result, _NewBad]':
-        """Wraps a non-EffSync value in the container. No inspections here."""
+    def of(value: _Result) -> 'EffSync[_Result, Never]':
+        """Wraps a non-EffSync 'GOOD' value in the container. No inspections here."""
+        return EffSync(lambda: value)
+
+    @staticmethod
+    def from_result(value: Union[_Result, _NewBad]) -> 'EffSync[_Result, _NewBad]':
+        """Wraps a non-Eff value in the container. No inspections here."""
         return EffSync(lambda: value)
 
     def __repr__(self):

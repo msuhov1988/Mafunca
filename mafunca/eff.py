@@ -1,4 +1,4 @@
-from typing import TypeVar, TypeAlias, Generic, Union, Optional
+from typing import TypeVar, TypeAlias, Generic, Union, Optional, Never
 from collections.abc import Callable, Awaitable
 import inspect
 import asyncio
@@ -177,7 +177,12 @@ class Eff(Generic[_Ok, _Bad]):
                 return await _maybe_await(self.effect())
 
     @staticmethod
-    def of(value: Union[_Result, _NewBad]) -> 'Eff[_Result, _NewBad]':
+    def of(value: _Result) -> 'Eff[_Result, Never]':
+        """Wraps a non-Eff 'GOOD' value in the container. No inspections here."""
+        return Eff(lambda: value)
+
+    @staticmethod
+    def from_result(value: Union[_Result, _NewBad]) -> 'Eff[_Result, _NewBad]':
         """Wraps a non-Eff value in the container. No inspections here."""
         return Eff(lambda: value)
 

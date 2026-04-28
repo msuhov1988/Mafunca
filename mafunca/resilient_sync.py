@@ -1,4 +1,4 @@
-from typing import TypeVar, TypeAlias, Generic, Union, Optional, List, Tuple, Any
+from typing import TypeVar, TypeAlias, Generic, Union, Optional, List, Tuple, Any, Never
 from collections.abc import Callable
 from time import sleep
 
@@ -8,7 +8,9 @@ from mafunca.common.exceptions import MonadError
 import mafunca.common._panics as panics  # noqa
 import mafunca.common._resilient_specs as specs # noqa
 
-__all__ = ['of', 'unit', 'insist', 'ResilientSync', 'DefaultBad']
+
+__all__ = ['of', 'from_result', 'unit', 'insist', 'ResilientSync', 'DefaultBad']
+
 
 _Exception = TypeVar('_Exception', bound=Exception)
 _Ok = TypeVar('_Ok')
@@ -67,10 +69,6 @@ class ResilientSync(Generic[_Ok, _Bad]):
     def effect(self) -> _Effect:
         return self._effect
 
-    @property
-    def past(self) -> Optional['ResilientSync[Any, Any]']:
-        return self._past
-
     def chain(
         self,
         fn: Callable[[_Ok], Union['ResilientSync[_Result, _NewBad]', _Result, _NewBad]]
@@ -106,7 +104,7 @@ class ResilientSync(Generic[_Ok, _Bad]):
         prime, continuations = None, []
         current, cls = self, self.__class__
         while True:
-            previous = current.past
+            previous = current._past  # noqa
             if not isinstance(previous, cls):
                 prime = current.effect
                 break
@@ -159,23 +157,18 @@ class ResilientSync(Generic[_Ok, _Bad]):
         return Report(result, chain_from_failure=restored, faulty=faulty, last_success=last_success)
 
 
-def of(value: Union[_Ok, _Bad]) -> ResilientSync[_Ok, _Bad]:
-    """
-        Lazy monad for resilient SYNC ONLY effects.
-        Resilient means, that if there is a failure in the chain, it can return a short chain from the point of failure.
-        Automatically catches errors and wraps them in an 'Uncaught' object.
-        Works with bad 'Triple' and 'Uncaught' entities using the short-circuit principle.
-    """
+def of(value: _Ok) -> ResilientSync[_Ok, Never]:
+    """Lazy monad for resilient SYNC ONLY effects."""
+    return ResilientSync(lambda: value)
+
+
+def from_result(value: Union[_Ok, _Bad]) -> ResilientSync[_Ok, _Bad]:
+    """Lazy monad for resilient SYNC ONLY effects."""
     return ResilientSync(lambda: value)
 
 
 def unit(fn: Callable[[], Union[_Ok, _Bad]]) -> ResilientSync[_Ok, _Bad]:
-    """
-       Lazy monad for resilient SYNC ONLY effects.
-       Resilient means, that if there is a failure in the chain, it can return a short chain from the point of failure.
-       Automatically catches errors and wraps them in an 'Uncaught' object.
-       Works with bad 'Triple' and 'Uncaught' entities using the short-circuit principle.
-    """
+    """Lazy monad for resilient SYNC ONLY effects."""
     return ResilientSync(fn)
 
 

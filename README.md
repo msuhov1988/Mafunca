@@ -88,14 +88,15 @@ total = f3(result2)
 But what if each of these functions can throw an exception or return **None**?  
 How can we combine them without confusing checks, external **try except** blocks, or repeated exception throws?  
 We can extend the standard **try except** mechanism in each of the functions as follows:
+
 ```python
 from mafunca.triple import Right, Left, Nothing
 
 # inside a function
 try:
-    return Right(some_inner_operation(arg))
+  return Right(some_inner_operation(arg))
 except YourException as exc:
-    return Left(exc)   
+  return Left(exc)   
 ```
 Replace explicit **None** returns:
 ```python
@@ -104,15 +105,16 @@ return None       # it was
 return Nothing()  # become
 ```
 Or combine both approaches at once:
+
 ```python
 from mafunca.triple import Right, Left, Nothing
 from mafunca.triple import TUtils
 
 # inside a function
 try:
-    return TUtils.from_nullable(some_inner_operation(arg))
+  return TUtils.from_nullable(some_inner_operation(arg))
 except YourException as exc:
-    return Left(exc)   
+  return Left(exc)   
 ```
 Now we can write the following chain:
 ```python
@@ -187,49 +189,60 @@ def summa(a: int, b: int, c: int) -> int:
 ```
 
 Now, by wrapping the function in the **Right** container, I can use the **ap** method:
+
 ```python
 from mafunca.curry import curry
 from mafunca.triple import Right, Left, Nothing
 
+
 @curry
 def summa(a: int, b: int, c: int) -> int:
-    return a + b + c
+  return a + b + c
+
 
 # NOTE: after each 'ap' method, a partially applied function is added to the container
-Right(summa).ap(Right(1)).ap(Right(2)).ap(Right(3))       # Right(6)
+Right(summa).ap(Right(1)).ap(Right(2)).ap(Right(3))  # Right(6)
 
 Right(summa).ap(Left("Error")).ap(Right(2)).ap(Right(3))  # Left("Error")
-Right(summa).ap(Right(1)).ap(Right(2)).ap(Nothing())      # Nothing()
+Right(summa).ap(Right(1)).ap(Right(2)).ap(Nothing())  # Nothing()
 ```
 Again, there is a special function to avoid writing such chains manually:
+
 ```python
 from mafunca.curry import curry
 from mafunca.triple import Right, Left, Nothing, TUtils
 
+
 @curry
 def summa(a: int, b: int, c: int) -> int:
-    return a + b + c
+  return a + b + c
+
 
 TUtils.lift(summa, Right(1), Right(2), Right(3))  # Right(6)
 ```
 It is possible without currying at all:
+
 ```python
 from mafunca.triple import Right, Left, Nothing, TUtils
 
+
 @TUtils.closer
 def summa(a: int, b: int, c: int) -> int:
-    return a + b + c
+  return a + b + c
 
-summa(1, 2, 3)                         # 6
-summa(Right(1), Right(2), 3)           # 6
-summa(Left("err"), Right(2), Right(3)) # Left('err')
-summa(Right(1), Nothing(), Right(3))   # Nothing()
+
+summa(1, 2, 3)  # 6
+summa(Right(1), Right(2), 3)  # 6
+summa(Left("err"), Right(2), Right(3))  # Left('err')
+summa(Right(1), Nothing(), Right(3))  # Nothing()
 ```
 
 ### Additional functions
+
 ```python
 from mafunca.triple import TUtils, Right, Left, Nothing
 from mafunca.triple import impure, is_impure
+
 
 # if you want to dive even deeper into FP
 # you can mark functions that have side effects
@@ -237,34 +250,37 @@ from mafunca.triple import impure, is_impure
 @impure
 def some_side_effect(arg): ...
 
-is_impure(some_side_effect)     # True
+
+is_impure(some_side_effect)  # True
 Right(1).map(some_side_effect)  # raise MonadError 
 
-TUtils.unit(1)  # Right(1)
+TUtils.of(1)  # Right(1)
 
-TUtils.from_nullable(None)                                      # Nothing
+TUtils.from_nullable(None)  # Nothing
 TUtils.from_nullable({"a": 1}, predicate=lambda d: d.get("a"))  # Right
 TUtils.from_nullable({"a": 1}, predicate=lambda d: d.get("b"))  # Nothing
-TUtils.from_nullable(None, predicate=lambda a: a is None)       # Right !!!
+TUtils.from_nullable(None, predicate=lambda a: a is None)  # Right !!!
+
 
 @TUtils.from_try
 def raiser():
-    raise TypeError("error")
+  raise TypeError("error")
 
-raiser()                             # Left(TypeError)
+
+raiser()  # Left(TypeError)
 TUtils.from_try(lambda a: a + 1)(0)  # Right(1)
 
-TUtils.is_triple(10)           # False
-TUtils.is_triple(Right(1))     # True
+TUtils.is_triple(10)  # False
+TUtils.is_triple(Right(1))  # True
 TUtils.is_triple(Left("err"))  # True
-TUtils.is_triple(Nothing())    # True
+TUtils.is_triple(Nothing())  # True
 
-TUtils.is_bad(Left("err"))     # True
-TUtils.is_bad(Nothing())       # True
-TUtils.is_bad(Right(1))        # False
-TUtils.is_bad(10)              # False
+TUtils.is_bad(Left("err"))  # True
+TUtils.is_bad(Nothing())  # True
+TUtils.is_bad(Right(1))  # False
+TUtils.is_bad(10)  # False
 
-TUtils.lift    # see previous chapter - an applicative example
+TUtils.lift  # see previous chapter - an applicative example
 TUtils.closer  # see previous chapter - an applicative example
 ```
 
@@ -274,25 +290,30 @@ These are well-known **LAZY** monads such as **IO**.
 It contains not a value, but a function of the form **Callable[[], R]**, which we will call an effect.  
 Why laziness?  
 It allows you to describe side effects within a regular function, keeping it 'pure':
+
 ```python
 from mafunca.triple import impure
 from mafunca.eff_sync import EffSync
 from mafunca.eff_sync import DefaultBad  # Left | Nothing, type alias
 
+
 @impure
 def database_communication(number: int): ...
+
 
 @impure
 def smtp_communication(addresses): ...
 
+
 # this function remains 'pure'
 def ordinary_function(a: int) -> EffSync[None, DefaultBad]:
-    result = a ** 2
-    return (
-      EffSync(lambda: result)
-      .map(database_communication)
-      .bind(lambda addr: EffSync(lambda: smtp_communication(addr)))
-    )
+  result = a ** 2
+  return (
+    EffSync(lambda: result)
+    .map(database_communication)
+    .bind(lambda addr: EffSync(lambda: smtp_communication(addr)))
+  )
+
 
 eff = ordinary_function(10)
 eff.run()  # performing side effects
@@ -323,11 +344,12 @@ from mafunca.eff_sync import EffSync
 | **.ensure(fn)**         | Acts like **finally**. **fn** - function without parameters and a return value (returns None)                                  | returns new Eff                                                                                           | returns new EffSync                |
 | **.to_task()**          | Wraps the inner effect into a Task. Inner effect must be a coroutine function.                                                 | returns asyncio.Task                                                                                      | -                                  | 
 | **.run()**              | Performs a chain of effects. This method is **async** in **Eff** and has an optional **delay** parameter.                      | returns the result of inner effect or throws a **TimeOutError** when the wait exceeds the specified delay | returns the result of inner effect |
-| **.of(value)**          | Static method                                                                                                                  | returns Eff(lambda: value)                                                                                | returns EffSync(lambda: value)     |
-
+| **.of(value)**          | Static method - only for 'good' values                                                                                         | returns Eff(lambda: value)                                                                                | returns EffSync(lambda: value)     |
+| **.from_result(value)** | Static method - the same as **of**, but for 'good' and 'bad' values                                                            | returns Eff(lambda: value)                                                                                | returns EffSync(lambda: value)     | 
 
 ### Effect examples
 #### The examples are "toy-like", but they reflect the essence
+
 ```python
 import asyncio
 from typing import Never
@@ -347,12 +369,13 @@ eff: EffSync[int, DefaultBadSync] = (
 )
 eff.run()  # Left(error)
 
+
 async def raiser():
-   raise TypeError("error")
+  raise TypeError("error")
+
 
 async_eff: Eff[int, Never] = Eff(raiser).catch(lambda e: 10)
 asyncio.run(async_eff.run())  # 10, async_eff.run - async method
-
 
 async_eff: Eff[None, Never] = Eff(raiser).ensure(lambda: print("finally"))
 asyncio.run(async_eff.run())  # the word will be printed despite the uncaught exception
@@ -388,10 +411,11 @@ In such scenarios, it is not uncommon for errors to be caused by external factor
 The resilient effects implemented here have this set of **FEATURES**.  
 
 Usage:
+
 ```python
 # STRICTLY for synchronous effects
 from mafunca.resilient_sync import ResilientSync
-from mafunca.resilient_sync import of, unit, insist
+from mafunca.resilient_sync import of, from_result, unit, insist
 
 from mafunca.triple import Left, Nothing
 from mafunca.common.resilient_support import Uncaught  # a special object that wraps unexpected exceptions
@@ -400,18 +424,24 @@ from mafunca.resilient_sync import DefaultBad  # Left | Nothing | Uncaught, type
 ```python
 # for asynchronous effects, but it can also work with synchronous functions
 from mafunca.resilient import Resilient
-from mafunca.resilient import of, unit, insist
+from mafunca.resilient import of, from_result, unit, insist
 from mafunca.resilient import DefaultBad  # Left | Nothing | Uncaught, type alias
 ``` 
 **Recommendation**: Use **ResilientSync** and **Resilient** classes only for typing purposes. A typical usage pattern:
 ```python
 # everything is the same for the synchronous module
 from typing import Never, Any
-from mafunca.resilient import of, unit, Resilient
+from mafunca.resilient import of, from_result, unit, Resilient
 from mafunca.resilient import DefaultBad
 
-prime_one: Resilient[int, Never] = of(10)            # Resilient(lambda: 10)
-prime_two: Resilient[int, Never] = unit(lambda: 10)  # Resilient(lambda: 10)
+# of - only 'good' values are expected
+prime_one: Resilient[int, Never] = of(10)              # Resilient(lambda: 10)
+
+# from_result - for 'good' and 'bad' values
+prime_two: Resilient[int, Never] = from_result(10)     # Resilient(lambda: 10)
+
+prime_three: Resilient[int, Never] = unit(lambda: 10)  # Resilient(lambda: 10)
+
 
 # So, you do not need to use these classes directly.
 resilient1: Resilient[Any, DefaultBad] = of(some_value).chain(...).chain(...)

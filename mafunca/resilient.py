@@ -1,4 +1,4 @@
-from typing import TypeVar, TypeAlias, Generic, Union, Optional, List, Tuple, Any
+from typing import TypeVar, TypeAlias, Generic, Union, Optional, List, Tuple, Any, Never
 from collections.abc import Callable, Awaitable
 import asyncio
 
@@ -8,7 +8,7 @@ from mafunca.common.exceptions import MonadError
 import mafunca.common._resilient_specs as specs # noqa
 
 
-__all__ = ['of', 'unit', 'insist', 'Resilient', 'DefaultBad']
+__all__ = ['of', 'from_result', 'unit', 'insist', 'Resilient', 'DefaultBad']
 
 
 _Exception = TypeVar('_Exception', bound=Exception)
@@ -78,10 +78,6 @@ class Resilient(Generic[_Ok, _Bad]):
     def effect(self) -> _Effect:
         return self._effect
 
-    @property
-    def past(self) -> Optional['Resilient[Any, Any]']:
-        return self._past
-
     def chain(
         self,
         fn: Callable[[_Ok], Union[_AwaitableSelf, _AwaitableResult, _AwaitableNewBad]]
@@ -105,7 +101,7 @@ class Resilient(Generic[_Ok, _Bad]):
         prime, continuations = None, []
         current, cls = self, self.__class__
         while True:
-            previous = current.past
+            previous = current._past  # noqa
             if not isinstance(previous, cls):
                 prime = current.effect
                 break
@@ -176,25 +172,18 @@ class Resilient(Generic[_Ok, _Bad]):
         return asyncio.create_task(self._launch(rebuild=rebuild))
 
 
-def of(value: Union[_Ok, _Bad]) -> Resilient[_Ok, _Bad]:
-    """
-        Lazy monad for resilient async effects.
-        Can accept both async and sync functions.
-        Resilient means, that if there is a failure in the chain, it can return a short chain from the point of failure.
-        Automatically catches errors and wraps them in an 'Uncaught' object.
-        Works with bad 'Triple' and 'Uncaught' entities using the short-circuit principle.
-    """
+def of(value: _Ok) -> Resilient[_Ok, Never]:
+    """Lazy monad for resilient async effects. Can accept both async and sync functions."""
+    return Resilient(lambda: value)
+
+
+def from_result(value: Union[_Ok, _Bad]) -> Resilient[_Ok, _Bad]:
+    """Lazy monad for resilient async effects. Can accept both async and sync functions."""
     return Resilient(lambda: value)
 
 
 def unit(fn: Callable[[], Union[Awaitable[_Ok], _Ok, Awaitable[_Bad], _Bad]]) -> Resilient[_Ok, _Bad]:
-    """
-        Lazy monad for resilient async effects.
-        Can accept both async and sync functions.
-        Resilient means, that if there is a failure in the chain, it can return a short chain from the point of failure.
-        Automatically catches errors and wraps them in an 'Uncaught' object.
-        Works with bad 'Triple' and 'Uncaught' entities using the short-circuit principle.
-    """
+    """Lazy monad for resilient async effects. Can accept both async and sync functions."""
     return Resilient(fn)
 
 

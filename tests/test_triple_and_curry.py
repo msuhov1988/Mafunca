@@ -12,7 +12,7 @@ class TestTripleAndCurry(unittest.TestCase):
         self.assertTrue(right.is_right)
         self.assertFalse(right.is_nothing)
 
-        from_unit = TUtils.unit(1)
+        from_unit = TUtils.of(1)
         self.assertTrue(from_unit.is_right)
         self.assertFalse(from_unit.is_nothing)
 
@@ -29,7 +29,7 @@ class TestTripleAndCurry(unittest.TestCase):
         self.assertTrue(TUtils.is_bad(Nothing()))
 
     def test_chain_right(self):
-        res = TUtils.unit(2).map(lambda x: x + 1).bind(lambda x: Right(x + 1)).unfold(right=lambda x: x ** 2)
+        res = TUtils.of(2).map(lambda x: x + 1).bind(lambda x: Right(x + 1)).unfold(right=lambda x: x ** 2)
         self.assertEqual(res, 16)
 
         res = Right(1).map(lambda x: x + 1).bind(lambda x: Right(x + 1)).get_or_else(100)
@@ -39,7 +39,7 @@ class TestTripleAndCurry(unittest.TestCase):
             Right(0)
             .map(lambda x: x + 1)
             .recover_from_left(lambda _: 100)
-            .bind(lambda x: TUtils.unit(x + 1))
+            .bind(lambda x: TUtils.of(x + 1))
             .map(lambda x: x + 1)
             .recover_from_nothing(lambda: 1000)
             .bind(lambda x: Right(x + 1))
@@ -86,9 +86,6 @@ class TestTripleAndCurry(unittest.TestCase):
         self.assertEqual(res, 1001)
 
     def test_chains_violations(self):
-        def fn_monadic(x):
-            return Right(x)
-
         async def fn_async(x):
             return x
 
@@ -96,8 +93,6 @@ class TestTripleAndCurry(unittest.TestCase):
         def fn_impure(a):
             return a
 
-        with self.assertRaises(MonadError):
-            Right(1).map(fn_monadic)
         with self.assertRaises(MonadError):
             Right(1).map(fn_async)
         with self.assertRaises(MonadError):

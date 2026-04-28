@@ -1,16 +1,16 @@
 from abc import ABC, abstractmethod
-from typing import TypeVar, ParamSpec, Generic, Union, overload
+from typing import TypeVar, ParamSpec, Generic, Union, Never
 from collections.abc import Callable
 from functools import wraps
 
 from mafunca.common.exceptions import ImpureMarkError, MonadError
 import mafunca.common._panics as panics # noqa
-from mafunca.curry import Curry
 
 
 __all__ = [
     'impure',
     'is_impure',
+    'Triple',
     'Right',
     'Left',
     'Nothing',
@@ -39,15 +39,17 @@ def is_impure(fn: Callable) -> bool:
     return getattr(fn, _IMPURE_PROP, False)
 
 
-R = TypeVar("R")
-L = TypeVar("L")
+_Ok = TypeVar('_Ok')
+_NewOk = TypeVar('_NewOk')
+_Bad = TypeVar('_Bad')
+_NewBad = TypeVar('_NewBad')
 
-V = TypeVar("V")
-W = TypeVar("W")
-X = TypeVar("X")
+_T1 = TypeVar("_T1")
+_T2 = TypeVar("_T2")
+_T3 = TypeVar("_T3")
 
 
-class Triple(ABC):
+class Triple(ABC, Generic[_Ok, _Bad]):
     """Abstract class for simple monad over the value that is available here and now"""
     @property
     @abstractmethod
@@ -60,31 +62,46 @@ class Triple(ABC):
         pass
 
     @abstractmethod
-    def map(self, fn: Callable[[R], V]):
+    def map(self, fn: Callable[[_Ok], _NewOk]) -> 'Triple[_NewOk, _Bad]':
         pass
 
     @abstractmethod
-    def bind(self, fn: Callable[[R], 'Triple']):
+    def bind(
+        self,
+        fn: Callable[[_Ok], 'Triple[_NewOk, _NewBad]']
+    ) -> 'Triple[_NewOk, Union[_Bad, _NewBad]]':
         pass
 
     @abstractmethod
-    def recover_from_left(self, fn: Callable[[L], V]):
+    def recover_from_left(
+        self,
+        fn: Callable[[_Bad], Union['Triple[_NewOk, _NewBad]', _NewOk]]
+    ) -> 'Triple[_NewOk, _NewBad]':
         pass
 
     @abstractmethod
-    def recover_from_nothing(self, fn: Callable[[], V]):
+    def recover_from_nothing(
+        self,
+        fn: Callable[[], Union['Triple[_NewOk, _NewBad]', _NewOk]]
+    ) -> 'Triple[_NewOk, _NewBad]':
         pass
 
     @abstractmethod
-    def unfold(self, *, right: Callable[[R], V], left: Callable[[L], W], nothing: Callable[[], X]):
+    def unfold(
+        self,
+        *,
+        right: Callable[[_Ok], _T1] = lambda v: v,
+        left: Callable[[_Bad], _T2] = lambda w: w,
+        nothing: Callable[[], _T3] = lambda: None
+    ) -> Union[_T1, _T2, _T3]:
         pass
 
     @abstractmethod
-    def ap(self, wrapped_val: 'Triple'):
+    def ap(self, wrapped_val: 'Triple[_T1, _NewBad]'):
         pass
 
     @abstractmethod
-    def get_or_else(self, alter: V):
+    def get_or_else(self, alter: _NewOk) -> Union[_Ok, _NewOk]:
         pass
 
     @abstractmethod
@@ -98,21 +115,16 @@ def _panic_on_bad_function(fn: Callable, monad: str, method: str, check_impure=T
         raise MonadError(monad, method, f"impure function '{fn.__name__}' can not be used")
 
 
-class _Never:
-    """A special marker for a violation of the contract"""
-    pass
-
-
-class Right(Triple, Generic[R]):
+class Right(Triple[_Ok, Never], Generic[_Ok]):
     """A branch for a value representing a successful result"""
 
     __slots__ = ["_value"]
 
-    def __init__(self, value: R):
+    def __init__(self, value: _Ok):
         self._value = value
 
     @property
-    def value(self) -> R:
+    def value(self) -> _Ok:
         return self._value
 
     @property
@@ -123,24 +135,16 @@ class Right(Triple, Generic[R]):
     def is_nothing(self) -> bool:
         return False
 
-    def map(self, fn: Callable[[R], V]) -> 'Right[V]':
+    def map(self, fn: Callable[[_Ok], _NewOk]) -> 'Right[_NewOk]':
         """
            Applies a sync function that returns a non-Triple value.
            :raises MonadError: violation of the contract
         """
         _panic_on_bad_function(fn, monad=self.__class__.__name__, method='map')
-        result: V = fn(self._value)
-        panics.on_monadic_result(result, fn=fn, monad=Triple, method='map')
+        result = fn(self._value)
         return Right(result)
 
-    @overload
-    def bind(self, fn: Callable[[R], 'Right[V]']) -> 'Right[V]': pass
-    @overload
-    def bind(self, fn: Callable[[R], 'Left[V]']) -> 'Left[V]': pass
-    @overload
-    def bind(self, fn: Callable[[R], 'Nothing']) -> 'Nothing': pass
-
-    def bind(self, fn):
+    def bind(self, fn: Callable[[_Ok], Triple[_NewOk, _NewBad]]) -> Triple[_NewOk, _NewBad]:
         """
             Applies a sync function that returns a Triple wrapped value.
             :raises MonadError: violation of the contract
@@ -148,39 +152,25 @@ class Right(Triple, Generic[R]):
         _panic_on_bad_function(fn, monad=self.__class__.__name__, method='bind')
         return fn(self._value)
 
-    @overload
-    def recover_from_left(self, fn: Callable[[L], 'Right[V]']) -> 'Right[R]': pass
-    @overload
-    def recover_from_left(self, fn: Callable[[L], 'Left[V]']) -> 'Right[R]': pass
-    @overload
-    def recover_from_left(self, fn: Callable[[L], 'Nothing']) -> 'Right[R]': pass
-    @overload
-    def recover_from_left(self, fn: Callable[[L], V]) -> 'Right[R]': pass
-
-    def recover_from_left(self, fn):
-        """Applies a sync function for recover from error. Always returns itself for this branch."""
+    def recover_from_left(
+        self,
+        fn: Callable[[Never], Union[Triple[_NewOk, _NewBad], _NewOk]]
+    ) -> 'Right[_Ok]':
         return self
 
-    @overload
-    def recover_from_nothing(self, fn: Callable[[], 'Right[V]']) -> 'Right[R]': pass
-    @overload
-    def recover_from_nothing(self, fn: Callable[[], 'Left[V]']) -> 'Right[R]': pass
-    @overload
-    def recover_from_nothing(self, fn: Callable[[], 'Nothing']) -> 'Right[R]': pass
-    @overload
-    def recover_from_nothing(self, fn: Callable[[], V]) -> 'Right[R]': pass
-
-    def recover_from_nothing(self, fn):
-        """Applies a sync function for recover from emptiness. Always returns itself for this branch."""
+    def recover_from_nothing(
+        self,
+        fn: Callable[[], Union[Triple[_NewOk, _NewBad], _NewOk]]
+    ) -> 'Right[_Ok]':
         return self
 
     def unfold(
-            self,
-            *,
-            right: Callable[[R], V] = lambda v: v,
-            left: Callable[[L], W] = lambda w: w,
-            nothing: Callable[[], X] = lambda: None
-    ) -> V:
+        self,
+        *,
+        right: Callable[[_Ok], _T1] = lambda v: v,
+        left: Callable[[Never], _T2] = lambda w: w,
+        nothing: Callable[[], _T3] = lambda: None
+    ) -> _T1:
         """
             Applies a sync function without wrapping the result. As a rule, it completes the chain.
             :raises MonadError: violation of the contract by 'right'.
@@ -188,24 +178,7 @@ class Right(Triple, Generic[R]):
         _panic_on_bad_function(right, monad=self.__class__.__name__, method='unfold')
         return right(self._value)
 
-    @overload
-    def ap(self: 'Left[V]', wrapped_val) -> 'Left[V]': pass
-    @overload
-    def ap(self: 'Nothing', wrapped_val) -> 'Nothing': pass
-    @overload
-    def ap(self, wrapped_val: 'Left[V]') -> 'Left[V]': pass
-    @overload
-    def ap(self, wrapped_val: 'Nothing') -> 'Nothing': pass
-    @overload
-    def ap(self: 'Right[Callable[[V], Right[W]]]', wrapped_val: 'Right[V]') -> 'Right[W]': pass
-    @overload
-    def ap(self: 'Right[Callable[[V], W]]', wrapped_val: 'Right[V]') -> 'Right[W]': pass
-    @overload
-    def ap(self: 'Right[Curry[W]]', wrapped_val: 'Right[V]') -> Union['Right[Curry[W]]', V]: pass
-    @overload
-    def ap(self: 'Right[V]', wrapped_val: 'Right[X]') -> _Never: pass
-
-    def ap(self, wrapped_val):
+    def ap(self: 'Right[Callable[[_T1], _T2]]', wrapped_val: Triple[_T1, _NewBad]) -> Triple[_T2, _NewBad]:
         """
            Applies a value enclosed in a Triple container to sync function also in the container.
            Combines the logic of map and bind, wrapping simple values in a monad.
@@ -218,23 +191,23 @@ class Right(Triple, Generic[R]):
         result = self._value(val)
         return result if isinstance(result, Triple) else Right(result)
 
-    def get_or_else(self, alter: V) -> R:
+    def get_or_else(self, alter: _NewOk) -> _Ok:
         return self._value
 
     def __repr__(self):
         return f"Right({self._value})"
 
 
-class Left(Triple, Generic[L]):
+class Left(Triple[Never, _Bad], Generic[_Bad]):
     """A branch for a value representing an error"""
 
     __slots__ = ["_value"]
 
-    def __init__(self, value: L):
+    def __init__(self, value: _Bad):
         self._value = value
 
     @property
-    def value(self) -> L:
+    def value(self) -> _Bad:
         return self._value
 
     @property
@@ -245,29 +218,16 @@ class Left(Triple, Generic[L]):
     def is_nothing(self) -> bool:
         return False
 
-    def map(self, fn: Callable[[R], V]) -> 'Left[L]':
+    def map(self, fn: Callable[[Never], _NewOk]) -> 'Left[_Bad]':
         return self
 
-    @overload
-    def bind(self, fn: Callable[[R], 'Right[V]']) -> 'Left[L]': pass
-    @overload
-    def bind(self, fn: Callable[[R], 'Left[V]']) -> 'Left[L]': pass
-    @overload
-    def bind(self, fn: Callable[[R], 'Nothing']) -> 'Left[L]': pass
-
-    def bind(self, fn):
+    def bind(self, fn: Callable[[Never], Triple[_NewOk, _NewBad]]) -> 'Left[_Bad]':
         return self
 
-    @overload
-    def recover_from_left(self, fn: Callable[[L], 'Right[V]']) -> 'Right[V]': pass
-    @overload
-    def recover_from_left(self, fn: Callable[[L], 'Left[V]']) -> 'Left[V]': pass
-    @overload
-    def recover_from_left(self, fn: Callable[[L], 'Nothing']) -> 'Nothing': pass
-    @overload
-    def recover_from_left(self, fn: Callable[[L], V]) -> 'Right[V]': pass
-
-    def recover_from_left(self, fn):
+    def recover_from_left(
+        self,
+        fn: Callable[[_Bad], Union[Triple[_NewOk, _NewBad], _NewOk]]
+    ) -> Triple[_NewOk, _NewBad]:
         """
            Applies a sync function for recover from error.
            Combines the logic of map and bind, wrapping simple values in a Triple.
@@ -277,26 +237,19 @@ class Left(Triple, Generic[L]):
         result = fn(self._value)
         return result if isinstance(result, Triple) else Right(result)
 
-    @overload
-    def recover_from_nothing(self, fn: Callable[[], 'Right[V]']) -> 'Left[L]': pass
-    @overload
-    def recover_from_nothing(self, fn: Callable[[], 'Left[V]']) -> 'Left[L]': pass
-    @overload
-    def recover_from_nothing(self, fn: Callable[[], 'Nothing']) -> 'Left[L]': pass
-    @overload
-    def recover_from_nothing(self, fn: Callable[[], V]) -> 'Left[L]': pass
-
-    def recover_from_nothing(self, fn):
-        """Applies a sync function for recover from emptiness. Always returns itself for this branch."""
+    def recover_from_nothing(
+        self,
+        fn: Callable[[], Union[Triple[_NewOk, _NewBad], _NewOk]]
+    ) -> 'Left[_Bad]':
         return self
 
     def unfold(
-            self,
-            *,
-            right: Callable[[R], V] = lambda v: v,
-            left: Callable[[L], W] = lambda w: w,
-            nothing: Callable[[], X] = lambda: None
-    ) -> W:
+        self,
+        *,
+        right: Callable[[Never], _T1] = lambda v: v,
+        left: Callable[[_Bad], _T2] = lambda w: w,
+        nothing: Callable[[], _T3] = lambda: None
+    ) -> _T2:
         """
             Applies a sync function without wrapping the result. As a rule, it completes the chain.
             :raises MonadError: violation of the contract by 'left'.
@@ -304,34 +257,17 @@ class Left(Triple, Generic[L]):
         _panic_on_bad_function(left, monad=self.__class__.__name__, method='unfold')
         return left(self._value)
 
-    @overload
-    def ap(self: 'Left[V]', wrapped_val) -> 'Left[V]': pass
-    @overload
-    def ap(self: 'Nothing', wrapped_val) -> 'Nothing': pass
-    @overload
-    def ap(self, wrapped_val: 'Left[V]') -> 'Left[V]': pass
-    @overload
-    def ap(self, wrapped_val: 'Nothing') -> 'Nothing': pass
-    @overload
-    def ap(self: 'Right[Callable[[V], Right[W]]]', wrapped_val: 'Right[V]') -> 'Right[W]': pass
-    @overload
-    def ap(self: 'Right[Callable[[V], W]]', wrapped_val: 'Right[V]') -> 'Right[W]': pass
-    @overload
-    def ap(self: 'Right[Curry[W]]', wrapped_val: 'Right[V]') -> Union['Right[Curry[W]]', V]: pass
-    @overload
-    def ap(self: 'Right[V]', wrapped_val: 'Right[X]') -> _Never: pass
-
-    def ap(self, wrapped_val):
+    def ap(self, wrapped_val: Triple[_T1, _NewBad]) -> 'Left[_Bad]':
         return self
 
-    def get_or_else(self, alter: V) -> V:
+    def get_or_else(self, alter: _NewOk) -> _NewOk:
         return alter
 
     def __repr__(self):
         return f"Left({self._value})"
 
 
-class Nothing(Triple):
+class Nothing(Triple[Never, Never]):
     """A branch for an empty result"""
 
     __slots__ = []
@@ -344,42 +280,22 @@ class Nothing(Triple):
     def is_nothing(self) -> bool:
         return True
 
-    def map(self, fn: Callable[[R], V]) -> 'Nothing':
+    def map(self, fn: Callable[[Never], _NewOk]) -> 'Nothing':
         return self
 
-    @overload
-    def bind(self, fn: Callable[[R], 'Right[V]']) -> 'Nothing': pass
-    @overload
-    def bind(self, fn: Callable[[R], 'Left[V]']) -> 'Nothing': pass
-    @overload
-    def bind(self, fn: Callable[[R], 'Nothing']) -> 'Nothing': pass
-
-    def bind(self, fn):
+    def bind(self, fn: Callable[[Never], Triple[_NewOk, _NewBad]]) -> 'Nothing':
         return self
 
-    @overload
-    def recover_from_left(self, fn: Callable[[L], 'Right[V]']) -> 'Nothing': pass
-    @overload
-    def recover_from_left(self, fn: Callable[[L], 'Left[V]']) -> 'Nothing': pass
-    @overload
-    def recover_from_left(self, fn: Callable[[L], 'Nothing']) -> 'Nothing': pass
-    @overload
-    def recover_from_left(self, fn: Callable[[L], V]) -> 'Nothing': pass
-
-    def recover_from_left(self, fn):
-        """Applies a sync function for recover from error. Always returns itself for this branch."""
+    def recover_from_left(
+        self,
+        fn: Callable[[Never], Union[Triple[_NewOk, _NewBad], _NewOk]]
+    ) -> 'Nothing':
         return self
 
-    @overload
-    def recover_from_nothing(self, fn: Callable[[], 'Right[V]']) -> 'Right[V]': pass
-    @overload
-    def recover_from_nothing(self, fn: Callable[[], 'Left[V]']) -> 'Left[V]': pass
-    @overload
-    def recover_from_nothing(self, fn: Callable[[], 'Nothing']) -> 'Nothing': pass
-    @overload
-    def recover_from_nothing(self, fn: Callable[[], V]) -> 'Right[V]': pass
-
-    def recover_from_nothing(self, fn):
+    def recover_from_nothing(
+        self,
+        fn: Callable[[], Union[Triple[_NewOk, _NewBad], _NewOk]]
+    ) -> Triple[_NewOk, _NewBad]:
         """
            Applies a sync function for recover from emptiness.
            Combines the logic of map and bind, wrapping simple values in a Triple.
@@ -390,12 +306,12 @@ class Nothing(Triple):
         return result if isinstance(result, Triple) else Right(result)
 
     def unfold(
-            self,
-            *,
-            right: Callable[[R], V] = lambda v: v,
-            left: Callable[[L], W] = lambda w: w,
-            nothing: Callable[[], X] = lambda: None
-    ) -> V:
+        self,
+        *,
+        right: Callable[[Never], _T1] = lambda v: v,
+        left: Callable[[Never], _T2] = lambda w: w,
+        nothing: Callable[[], _T3] = lambda: None
+    ) -> _T3:
         """
             Applies a sync function without wrapping the result. As a rule, it completes the chain.
             :raises MonadError: violation of the contract by 'nothing'.
@@ -403,28 +319,11 @@ class Nothing(Triple):
         _panic_on_bad_function(nothing, monad=self.__class__.__name__, method='unfold')
         return nothing()
 
-    def get_or_else(self, alter: V) -> V:
-        return alter
-
-    @overload
-    def ap(self: 'Left[V]', wrapped_val) -> 'Left[V]': pass
-    @overload
-    def ap(self: 'Nothing', wrapped_val) -> 'Nothing': pass
-    @overload
-    def ap(self, wrapped_val: 'Left[V]') -> 'Left[V]': pass
-    @overload
-    def ap(self, wrapped_val: 'Nothing') -> 'Nothing': pass
-    @overload
-    def ap(self: 'Right[Callable[[V], Right[W]]]', wrapped_val: 'Right[V]') -> 'Right[W]': pass
-    @overload
-    def ap(self: 'Right[Callable[[V], W]]', wrapped_val: 'Right[V]') -> 'Right[W]': pass
-    @overload
-    def ap(self: 'Right[Curry[W]]', wrapped_val: 'Right[V]') -> Union['Right[Curry[W]]', V]: pass
-    @overload
-    def ap(self: 'Right[V]', wrapped_val: 'Right[X]') -> _Never: pass
-
-    def ap(self, wrapped_val):
+    def ap(self, wrapped_val: Triple[_T1, _NewBad]) -> 'Nothing':
         return self
+
+    def get_or_else(self, alter: _NewOk) -> _NewOk:
+        return alter
 
     def __repr__(self):
         return f"Nothing()"
@@ -437,17 +336,20 @@ class TUtils:
     """Several useful auxiliary functions - static methods"""
 
     @staticmethod
-    def unit(value: R) -> Right[R]:
+    def of(value: _Ok) -> Right[_Ok]:
         """Wraps a non-Triple value in a Right container"""
         return Right(value)
 
     @staticmethod
-    def from_nullable(value: R, predicate: Callable[[R], bool] = lambda v: v is not None) -> Union[Right[R], Nothing]:
+    def from_nullable(
+        value: _Ok,
+        predicate: Callable[[_Ok], bool] = lambda v: v is not None
+    ) -> Union[Right[_Ok], Nothing]:
         """Wraps a non-Triple value in a Right container if the predicate returns true, otherwise - Nothing"""
         return Right(value) if predicate(value) else Nothing()
 
     @staticmethod
-    def from_try(fn: Callable[Params, V]) -> Callable[Params, Union[Right[V], Left[Exception]]]:
+    def from_try(fn: Callable[Params, _Ok]) -> Callable[Params, Union[Right[_Ok], Left[Exception]]]:
         """
            Performs a sync function, catching possible errors - heirs of 'Exception'.
            MonadError is not suppressed.
@@ -455,9 +357,9 @@ class TUtils:
         """
         _panic_on_bad_function(fn, monad=TUtils.__name__, method='from_try')
 
-        def from_try_inner(*args: Params.args, **kwargs: Params.kwargs) -> Union[Right[V], Left[Exception]]:
+        def from_try_inner(*args: Params.args, **kwargs: Params.kwargs) -> Union[Right[_Ok], Left[Exception]]:
             try:
-                result: V = fn(*args, **kwargs)
+                result: _Ok = fn(*args, **kwargs)
                 return Right(result)
             except Exception as err:
                 if isinstance(err, MonadError):
@@ -485,11 +387,11 @@ class TUtils:
         return isinstance(value, Triple) and not value.is_right
 
     @staticmethod
-    def closer(func: Callable[..., R]) -> Callable[..., Union[Left, Nothing, R]]:
+    def closer(func: Callable[..., _Ok]) -> Callable[..., Union[Left, Nothing, _Ok]]:
         """Sync decorator - if one of the arguments is a "bad" Triple entity, it immediately returns it.
            Otherwise, it calls the function with the passed arguments, automatically unwraps "good" Triple entities.
         """
-        def closer_wrapper(*args, **kwargs) -> Union[Left, Nothing, R]:
+        def closer_wrapper(*args, **kwargs) -> Union[Left, Nothing, _Ok]:
             for arg in args:
                 if TUtils.is_bad(arg):
                     return arg
