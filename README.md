@@ -94,9 +94,9 @@ from mafunca.triple import Right, Left, Nothing
 
 # inside a function
 try:
-  return Right(some_inner_operation(arg))
+    return Right(some_inner_operation(arg))
 except YourException as exc:
-  return Left(exc)   
+    return Left(exc)   
 ```
 Replace explicit **None** returns:
 ```python
@@ -112,34 +112,34 @@ from mafunca.triple import TUtils
 
 # inside a function
 try:
-  return TUtils.from_nullable(some_inner_operation(arg))
+    return TUtils.from_nullable(some_inner_operation(arg))
 except YourException as exc:
-  return Left(exc)   
+    return Left(exc)   
 ```
 Now we can write the following chain:
 ```python
 # each of the functions now returns a Triple, so I'm using the 'bind' method
 monadic_total = (
-  Right(init_val)
-  .bind(f1)
-  .bind(f2)
-  .bind(f3)
+    Right(init_val)
+    .bind(f1)
+    .bind(f2)
+    .bind(f3)
 )
 total = monadic_total.unfold(
-  right=function_handle,
-  left=function_notify_and_log,
-  nothing=function_inaction
+    right=function_handle,
+    left=function_notify_and_log,
+    nothing=function_inaction
 )
 ```
 Or using recovery methods:
 ```python
 monadic_total = (
-  Right(init_val)
-  .bind(f1)
-  .bind(f2)
-  .bind(f3)
-  .recover_from_left(error_handler)
-  .recove_from_nothing(emptiness_handler)
+    Right(init_val)
+    .bind(f1)
+    .bind(f2)
+    .bind(f3)
+    .recover_from_left(error_handler)
+    .recove_from_nothing(emptiness_handler)
 )
 
 # since I know that Left and Nothing are processed
@@ -197,7 +197,7 @@ from mafunca.triple import Right, Left, Nothing
 
 @curry
 def summa(a: int, b: int, c: int) -> int:
-  return a + b + c
+    return a + b + c
 
 
 # NOTE: after each 'ap' method, a partially applied function is added to the container
@@ -215,7 +215,7 @@ from mafunca.triple import Right, Left, Nothing, TUtils
 
 @curry
 def summa(a: int, b: int, c: int) -> int:
-  return a + b + c
+    return a + b + c
 
 
 TUtils.lift(summa, Right(1), Right(2), Right(3))  # Right(6)
@@ -228,7 +228,7 @@ from mafunca.triple import Right, Left, Nothing, TUtils
 
 @TUtils.closer
 def summa(a: int, b: int, c: int) -> int:
-  return a + b + c
+    return a + b + c
 
 
 summa(1, 2, 3)  # 6
@@ -264,7 +264,7 @@ TUtils.from_nullable(None, predicate=lambda a: a is None)  # Right !!!
 
 @TUtils.from_try
 def raiser():
-  raise TypeError("error")
+    raise TypeError("error")
 
 
 raiser()  # Left(TypeError)
@@ -307,12 +307,12 @@ def smtp_communication(addresses): ...
 
 # this function remains 'pure'
 def ordinary_function(a: int) -> EffSync[None, DefaultBad]:
-  result = a ** 2
-  return (
-    EffSync(lambda: result)
-    .map(database_communication)
-    .bind(lambda addr: EffSync(lambda: smtp_communication(addr)))
-  )
+    result = a ** 2
+    return (
+        EffSync(lambda: result)
+        .map(database_communication)
+        .bind(lambda addr: EffSync(lambda: smtp_communication(addr)))
+    )
 
 
 eff = ordinary_function(10)
@@ -362,16 +362,16 @@ from mafunca.triple import Left, Nothing
 
 # short circuit on bad Triple entity
 eff: EffSync[int, DefaultBadSync] = (
-  EffSync.of(0)
-  .map(lambda v: Left('error') if v == 0 else Nothing())
-  .bind(lambda x: EffSync(lambda: x + 1))
-  .bind(lambda x: EffSync(lambda: x + 1))
+    EffSync.of(0)
+    .map(lambda v: Left('error') if v == 0 else Nothing())
+    .bind(lambda x: EffSync(lambda: x + 1))
+    .bind(lambda x: EffSync(lambda: x + 1))
 )
 eff.run()  # Left(error)
 
 
 async def raiser():
-  raise TypeError("error")
+    raise TypeError("error")
 
 
 async_eff: Eff[int, Never] = Eff(raiser).catch(lambda e: 10)
