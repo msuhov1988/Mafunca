@@ -2,7 +2,7 @@ import unittest
 import asyncio
 
 from mafunca.triple import Left, Nothing
-from mafunca.resilient import of, unit, insist
+from mafunca.resilient import of, from_func, insist
 from mafunca.common.resilient_support import Report, Uncaught
 
 
@@ -34,7 +34,7 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rp.last_success, None)
 
     async def test_ordinary_chains2(self):
-        rp = await of(0).chain(lambda v: unit(get_five)).chain(plus_five).run()
+        rp = await of(0).chain(lambda v: from_func(get_five)).chain(plus_five).run()
         self.assertIsInstance(rp, Report)
         self.assertEqual(rp.chain_from_failure, None)
         self.assertEqual(rp.faulty, None)
@@ -45,7 +45,7 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
         rp = await of(Left('error')).chain(plus_five).run()
         self.assertEqual(rp.result.unfold(), 'error')
         self.assertEqual(rp.last_success, None)
-        rp = await unit(get_five).chain(lambda _: of(Nothing())).chain(lambda v: v ** 2).run()
+        rp = await from_func(get_five).chain(lambda _: of(Nothing())).chain(lambda v: v ** 2).run()
         self.assertIsInstance(rp.result, Nothing)
         self.assertEqual(rp.last_success, None)
 
@@ -53,12 +53,12 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
         async def raiser():
             raise TypeError('error')
 
-        resilient = unit(raiser).chain(lambda v: v + 1).chain(lambda v: v + 1)
+        resilient = from_func(raiser).chain(lambda v: v + 1).chain(lambda v: v + 1)
         rp = await resilient.run(rebuild=True)
         self.assertEqual(rp.chain_from_failure is resilient, True)
         self.assertEqual(rp.faulty == raiser, True)
 
-        rp = await unit(raiser).chain(lambda v: v + 1).chain(plus_five).run()
+        rp = await from_func(raiser).chain(lambda v: v + 1).chain(plus_five).run()
         err = rp.result
         self.assertIsInstance(err, Uncaught)
         self.assertIsInstance(err.error, TypeError)
@@ -69,7 +69,7 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
         async def raiser():
             raise TypeError('error')
 
-        rp = await unit(raiser).chain(plus_five).catch(lambda _: 100).run()
+        rp = await from_func(raiser).chain(plus_five).catch(lambda _: 100).run()
         self.assertEqual(rp.chain_from_failure, None)
         self.assertEqual(rp.faulty, None)
         self.assertEqual(rp.result, 100)
@@ -78,14 +78,14 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
         async def catcher(_):
             return 100
 
-        rp = await unit(lambda: 1).chain(plus_five).catch(catcher).chain(lambda v: v + 1).run()
+        rp = await from_func(lambda: 1).chain(plus_five).catch(catcher).chain(lambda v: v + 1).run()
         self.assertEqual(rp.result, 7)
 
     async def test_catching_errors_no_effect2(self):
         async def catcher(_):
             return 100
 
-        rp = await unit(lambda: 1).chain(lambda _: Left(0)).catch(catcher).chain(plus_five).run()
+        rp = await from_func(lambda: 1).chain(lambda _: Left(0)).catch(catcher).chain(plus_five).run()
         self.assertIsInstance(rp.result, Left)
 
     async def test_ensure_normal(self):
@@ -109,7 +109,7 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
             nonlocal g
             g += 1
 
-        rp = await unit(raiser).chain(plus_five).chain(lambda v: v ** 2).ensure(plus).run()
+        rp = await from_func(raiser).chain(plus_five).chain(lambda v: v ** 2).ensure(plus).run()
         self.assertIsInstance(rp.result, Uncaught)
         self.assertEqual(g, 1)
 
@@ -120,13 +120,13 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
             nonlocal g
             g += 1
 
-        rp = await unit(lambda: Nothing()).ensure(plus).chain(plus_five).run()
+        rp = await from_func(lambda: Nothing()).ensure(plus).chain(plus_five).run()
         self.assertIsInstance(rp.result, Nothing)
         self.assertEqual(g, 1)
 
     async def test_nested_ordinary_chain(self):
         def inner_chain(val: int):
-            return unit(lambda: val ** 2).chain(lambda v: v + 1).chain(lambda v: v + 1)
+            return from_func(lambda: val ** 2).chain(lambda v: v + 1).chain(lambda v: v + 1)
 
         rp = await of(5).chain(plus_five).chain(inner_chain).run()
         self.assertEqual(rp.result, 102)
@@ -135,7 +135,7 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
         def inner_chain(val: int):
             return of(val).chain(lambda _: Left('error')).chain(lambda v: v + 1)
 
-        rp = await unit(get_five).chain(plus_five).chain(inner_chain).run()
+        rp = await from_func(get_five).chain(plus_five).chain(inner_chain).run()
         self.assertIsInstance(rp.result, Left)
 
     async def test_nested_uncaught_errors(self):
@@ -143,9 +143,9 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
             raise TypeError('error')
 
         def inner_chain(val: int):
-            return unit(raiser).chain(lambda _: val + 1).chain(lambda v: v + 1)
+            return from_func(raiser).chain(lambda _: val + 1).chain(lambda v: v + 1)
 
-        rp = await unit(get_five).chain(plus_five).chain(inner_chain).run()
+        rp = await from_func(get_five).chain(plus_five).chain(inner_chain).run()
         self.assertIsInstance(rp.result, Uncaught)
 
     async def test_nested_caught_errors(self):
@@ -153,7 +153,7 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
             raise TypeError('error')
 
         def inner_chain(val: int):
-            return unit(raiser).chain(lambda _: val + 1).catch(lambda _: 0)
+            return from_func(raiser).chain(lambda _: val + 1).catch(lambda _: 0)
 
         rp = await of(5).chain(plus_five).chain(inner_chain).run()
         self.assertEqual(rp.result, 0)
@@ -169,9 +169,9 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
             g += 1
 
         def inner_chain(val: int):
-            return unit(raiser).chain(lambda _: val + 1).ensure(plus)
+            return from_func(raiser).chain(lambda _: val + 1).ensure(plus)
 
-        rp = await unit(get_five).chain(plus_five).chain(inner_chain).run()
+        rp = await from_func(get_five).chain(plus_five).chain(inner_chain).run()
         self.assertIsInstance(rp.result, Uncaught)
         self.assertEqual(g, 1)
 
@@ -284,7 +284,7 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
             return val ** 2
 
         def inner(o):
-            return of(o).chain(plus).chain(lambda v: unit(lambda: v + 1))
+            return of(o).chain(plus).chain(lambda v: from_func(lambda: v + 1))
 
         resilient = of(5).chain(plus_five).chain(inner).chain(lambda v: v + 1)
         rp = await resilient.run(rebuild=True)
@@ -313,7 +313,7 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
             return val ** 2
 
         def inner(o):
-            return of(o).chain(plus).chain(lambda v: unit(lambda: v + 1))
+            return of(o).chain(plus).chain(lambda v: from_func(lambda: v + 1))
 
         resilient = of(5).chain(plus_five).chain(inner).chain(lambda v: v + 1)
         rp = await resilient.run(rebuild=True)
@@ -371,7 +371,7 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
         def inner(o):
             return of(o).chain(plus).ensure(ensure_plus)
 
-        resilient = unit(get_five).chain(plus_five).chain(inner).chain(lambda v: v + 1)
+        resilient = from_func(get_five).chain(plus_five).chain(inner).chain(lambda v: v + 1)
         rp = await resilient.run(rebuild=True)
         rp = await rp.chain_from_failure.run(rebuild=True)
         rp = await rp.chain_from_failure.run(rebuild=True)
@@ -388,7 +388,7 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(1)
             return val ** 2
 
-        resilient = unit(get_five).chain(waiter)
+        resilient = from_func(get_five).chain(waiter)
         with self.assertRaises(TimeoutError):
             await resilient.run(delay=0.5)
 
@@ -406,7 +406,7 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
         self.assertIs(rp.faulty, failure)
         self.assertEqual(rp.last_success, 10)
 
-        rp = await unit(failure_prime).chain(failure).run(rebuild=True)
+        rp = await from_func(failure_prime).chain(failure).run(rebuild=True)
         self.assertIs(rp.faulty, failure_prime)
 
     async def test_catch_breaks_restored_chain(self):
@@ -476,10 +476,16 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
             return val ** 2
 
         async def level2(val):
-            return unit(lambda: val + 1).chain(side_effect_level2).chain(raiser_level2).chain(lambda v: v)
+            return from_func(lambda: val + 1).chain(side_effect_level2).chain(raiser_level2).chain(lambda v: v)
 
         async def level1(val):
-            return unit(lambda: val + 1).chain(level2).chain(side_effect_level1).chain(raiser_level1).chain(lambda v: v)
+            return (
+                from_func(lambda: val + 1)
+                .chain(level2)
+                .chain(side_effect_level1)
+                .chain(raiser_level1)
+                .chain(lambda v: v)
+            )
 
         resilient = of(0).chain(level1).chain(side_effect_level0)
         rp = await insist(resilient, 3)
@@ -522,7 +528,7 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
 
     async def test_nested_partial_execution(self):
         def level(val):
-            return unit(lambda: val + 1).chain(lambda v: v * 2).chain(lambda v: v * 2)
+            return from_func(lambda: val + 1).chain(lambda v: v * 2).chain(lambda v: v * 2)
 
         resilient = of(1).chain(level).chain(lambda v: v + 10).chain(lambda v: v + 10).chain(lambda v: v + 10)
         rp = await resilient.run(steps=1)
@@ -563,7 +569,7 @@ class TestResilient(unittest.IsolatedAsyncioTestCase):
             return val * 2
 
         async def level(val):
-            return unit(lambda: val + 1).chain(raiser).chain(lambda v: v * 2)
+            return from_func(lambda: val + 1).chain(raiser).chain(lambda v: v * 2)
 
         resilient = of(1).chain(level).chain(lambda v: v + 10).chain(lambda v: v + 10).chain(lambda v: v + 10)
         rp = await resilient.run(rebuild=True, steps=3)

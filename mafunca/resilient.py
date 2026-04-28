@@ -8,7 +8,7 @@ from mafunca.common.exceptions import MonadError
 import mafunca.common._resilient_specs as specs # noqa
 
 
-__all__ = ['of', 'from_result', 'unit', 'insist', 'Resilient', 'DefaultBad']
+__all__ = ['of', 'from_result', 'from_func', 'insist', 'Resilient', 'DefaultBad']
 
 
 _Exception = TypeVar('_Exception', bound=Exception)
@@ -74,10 +74,6 @@ class Resilient(Generic[_Ok, _Bad]):
         self._effect = effect
         self._past = past
 
-    @property
-    def effect(self) -> _Effect:
-        return self._effect
-
     def chain(
         self,
         fn: Callable[[_Ok], Union[_AwaitableSelf, _AwaitableResult, _AwaitableNewBad]]
@@ -103,9 +99,9 @@ class Resilient(Generic[_Ok, _Bad]):
         while True:
             previous = current._past  # noqa
             if not isinstance(previous, cls):
-                prime = current.effect
+                prime = current._effect  # noqa
                 break
-            continuations.append(current.effect)
+            continuations.append(current._effect)  # noqa
             current = previous
         return prime, continuations
 
@@ -182,7 +178,7 @@ def from_result(value: Union[_Ok, _Bad]) -> Resilient[_Ok, _Bad]:
     return Resilient(lambda: value)
 
 
-def unit(fn: Callable[[], Union[Awaitable[_Ok], _Ok, Awaitable[_Bad], _Bad]]) -> Resilient[_Ok, _Bad]:
+def from_func(fn: Callable[[], Union[Awaitable[_Ok], _Ok, Awaitable[_Bad], _Bad]]) -> Resilient[_Ok, _Bad]:
     """Lazy monad for resilient async effects. Can accept both async and sync functions."""
     return Resilient(fn)
 

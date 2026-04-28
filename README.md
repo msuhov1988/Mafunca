@@ -393,10 +393,10 @@ from mafunca.eff import Eff
 # I don't need to worry about invalid values being passed to further functions
 Eff.of(value).map(func1).map(func2).map(func3)...
 ```
-It is quite logical to demand further improvements from such a monad:
+It is quite logical to demand further improvements from such a monad(a monad-like abstraction, to be more precise):
 - instead of just returning a 'bad' **Triple** entity, it should also return a reference to the 'bad' function and the last successful result
 - let it return a **shortened chain from the point of failure** so that it can be restarted
-  without repeating the steps that were successfully completed
+  without repeating the steps that were successfully completed (within the same running process, of course)
 - let it **catch all errors** by returning a **special object** that indicates that this is an exception that we did not catch. For such an object, let it:
     - also makes a short circuit
     - also returns a reference to the failed function, last successful result and a **shortened chain from the point of failure**
@@ -415,7 +415,7 @@ Usage:
 ```python
 # STRICTLY for synchronous effects
 from mafunca.resilient_sync import ResilientSync
-from mafunca.resilient_sync import of, from_result, unit, insist
+from mafunca.resilient_sync import of, from_result, from_func, insist
 
 from mafunca.triple import Left, Nothing
 from mafunca.common.resilient_support import Uncaught  # a special object that wraps unexpected exceptions
@@ -424,28 +424,28 @@ from mafunca.resilient_sync import DefaultBad  # Left | Nothing | Uncaught, type
 ```python
 # for asynchronous effects, but it can also work with synchronous functions
 from mafunca.resilient import Resilient
-from mafunca.resilient import of, from_result, unit, insist
+from mafunca.resilient import of, from_result, from_func, insist
 from mafunca.resilient import DefaultBad  # Left | Nothing | Uncaught, type alias
 ``` 
 **Recommendation**: Use **ResilientSync** and **Resilient** classes only for typing purposes. A typical usage pattern:
 ```python
 # everything is the same for the synchronous module
 from typing import Never, Any
-from mafunca.resilient import of, from_result, unit, Resilient
+from mafunca.resilient import of, from_result, from_func, Resilient
 from mafunca.resilient import DefaultBad
 
 # of - only 'good' values are expected
-prime_one: Resilient[int, Never] = of(10)              # Resilient(lambda: 10)
+prime_one: Resilient[int, Never] = of(10)                   # Resilient(lambda: 10)
 
 # from_result - for 'good' and 'bad' values
-prime_two: Resilient[int, Never] = from_result(10)     # Resilient(lambda: 10)
+prime_two: Resilient[int, Never] = from_result(10)          # Resilient(lambda: 10)
 
-prime_three: Resilient[int, Never] = unit(lambda: 10)  # Resilient(lambda: 10)
+prime_three: Resilient[int, Never] = from_func(lambda: 10)  # Resilient(lambda: 10)
 
 
 # So, you do not need to use these classes directly.
 resilient1: Resilient[Any, DefaultBad] = of(some_value).chain(...).chain(...)
-resilient2 = unit(some_function).chain(...).chain(...) 
+resilient2 = from_func(some_function).chain(...).chain(...) 
 ```
 Calling the **run** method for such monads always returns a special object instead of a direct result:
 ```python
