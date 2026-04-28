@@ -1,9 +1,10 @@
 from abc import ABC, abstractmethod
-from typing import TypeVar, ParamSpec, Generic, Union, Never
+from typing import TypeVar, ParamSpec, Generic, Union, Optional, Never
 from collections.abc import Callable
 from functools import wraps
 
 from mafunca.common.exceptions import ImpureMarkError, MonadError
+from mafunca.curry import Curry
 import mafunca.common._panics as panics # noqa
 
 
@@ -51,6 +52,11 @@ _T3 = TypeVar("_T3")
 
 class Triple(ABC, Generic[_Ok, _Bad]):
     """Abstract class for simple monad over the value that is available here and now"""
+    @property
+    @abstractmethod
+    def value(self) -> Optional[Union[_Ok, _Bad]]:
+        pass
+
     @property
     @abstractmethod
     def is_right(self) -> bool:
@@ -178,7 +184,10 @@ class Right(Triple[_Ok, Never], Generic[_Ok]):
         _panic_on_bad_function(right, monad=self.__class__.__name__, method='unfold')
         return right(self._value)
 
-    def ap(self: 'Right[Callable[[_T1], _T2]]', wrapped_val: Triple[_T1, _NewBad]) -> Triple[_T2, _NewBad]:
+    def ap(
+        self: Union['Right[Callable[[_T1], _T2]]', Curry[_T2]],
+        wrapped_val: Triple[_T1, _NewBad]
+    ) -> Triple[_T2, _NewBad]:
         """
            Applies a value enclosed in a Triple container to sync function also in the container.
            Combines the logic of map and bind, wrapping simple values in a monad.
@@ -271,6 +280,10 @@ class Nothing(Triple[Never, Never]):
     """A branch for an empty result"""
 
     __slots__ = []
+
+    @property
+    def value(self) -> None:
+        return None
 
     @property
     def is_right(self) -> bool:
