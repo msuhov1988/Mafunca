@@ -28,6 +28,7 @@ def _panic_on_impure(monad: str, method: str, *funcs: Callable) -> None:
 
 T = TypeVar("T")
 E = TypeVar("E")
+NewE = TypeVar('NewE')
 R = TypeVar("R")
 
 
@@ -53,6 +54,11 @@ class Ok(Generic[T]):
         """:raises MonadError: if the passed function is marked as impure"""
         _panic_on_impure(self.__class__.__name__, 'bind', fn)
         return fn(self.value)
+
+    def map_error(self, fn: Callable[[E], NewE]) -> 'Result[T, NewE]':
+        """:raises MonadError: if the passed function is marked as impure"""
+        _panic_on_impure(self.__class__.__name__, 'bind', fn)
+        return self
 
     def get_or_else(self, alter: T) -> T:  # noqa
         return self.value
@@ -85,6 +91,11 @@ class Err(Generic[E]):
         """:raises MonadError: if the passed function is marked as impure"""
         _panic_on_impure(self.__class__.__name__, 'bind', fn)
         return self
+
+    def map_error(self, fn: Callable[[E], NewE]) -> 'Result[T, NewE]':
+        """:raises MonadError: if the passed function is marked as impure"""
+        _panic_on_impure(self.__class__.__name__, 'bind', fn)
+        return Err(fn(self.error))
 
     def get_or_else(self, alter: T) -> T:  # noqa
         return alter

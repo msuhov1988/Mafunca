@@ -35,6 +35,9 @@ class TestResult(unittest.TestCase):
         res = res.unfold(ok=lambda v: v, err=lambda e: e)
         self.assertTrue(res is None)
 
+        res = of(2).map_error(lambda e: [e]).unfold(ok=lambda v: v, err=lambda e: e)
+        self.assertEqual(res, 2)
+
     def test_err_chains(self):
         res = Err(1).map(lambda x: x + 1).bind(lambda x: Ok(x + 1))
         self.assertIsInstance(res, Err)
@@ -44,6 +47,9 @@ class TestResult(unittest.TestCase):
 
         res = Err("Some error").map(lambda x: x + 1).bind(lambda x: Ok(x + 1))
         res = res.unfold(ok=lambda x: x ** 2, err=lambda x: [x])
+        self.assertEqual(res, ["Some error"])
+
+        res = Err("Some error").map_error(lambda e: [e]).unfold(ok=lambda v: v, err=lambda e: e)
         self.assertEqual(res, ["Some error"])
 
     def test_violations(self):
