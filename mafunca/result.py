@@ -57,7 +57,7 @@ class Ok(Generic[T]):
 
     def map_error(self, fn: Callable[[E], NewE]) -> 'Result[T, NewE]':
         """:raises MonadError: if the passed function is marked as impure"""
-        _panic_on_impure(self.__class__.__name__, 'bind', fn)
+        _panic_on_impure(self.__class__.__name__, 'map_error', fn)
         return self
 
     def get_or_else(self, alter: T) -> T:  # noqa
@@ -94,7 +94,7 @@ class Err(Generic[E]):
 
     def map_error(self, fn: Callable[[E], NewE]) -> 'Result[T, NewE]':
         """:raises MonadError: if the passed function is marked as impure"""
-        _panic_on_impure(self.__class__.__name__, 'bind', fn)
+        _panic_on_impure(self.__class__.__name__, 'map_error', fn)
         return Err(fn(self.error))
 
     def get_or_else(self, alter: T) -> T:  # noqa
