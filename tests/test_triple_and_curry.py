@@ -1,9 +1,10 @@
 import unittest
+from inspect import iscoroutine
 import asyncio
 
 from mafunca.triple import Right, Left, Nothing, TUtils, impure
 from mafunca.common.exceptions import MonadError, CurryBadArguments
-from mafunca.curry import curry, async_curry
+from mafunca.curry import curry
 
 
 class TestTripleAndCurry(unittest.TestCase):
@@ -191,20 +192,26 @@ class TestTripleAndCurry(unittest.TestCase):
 
 class TestAsyncCurry(unittest.IsolatedAsyncioTestCase):
     async def test_async_curry(self):
-        @async_curry
+        @curry
         async def for_curry(a: int, b: int, c: int = 0, d: int = 0) -> list[int]:
             await asyncio.sleep(0)
             return [a, b, c, d]
 
-        res = await for_curry(1)
-        res = await res(2)
-        res = await res(3)
+        res = for_curry(1)
+        res = res(2)
+        res = res(3)
         res = await res(4)
         self.assertEqual(res, [1, 2, 3, 4])
 
-        res = await for_curry()
+        res = for_curry()
         res = await res(b=2, a=1)
         self.assertEqual(res, [1, 2, 0, 0])
+
+        res = for_curry(1, 2, 3, 4)
+        self.assertEqual(iscoroutine(res), True)
+
+        res = await res
+        self.assertEqual(res, [1, 2, 3, 4])
 
 
 if __name__ == "__main__":

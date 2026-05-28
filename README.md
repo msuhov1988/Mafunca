@@ -574,7 +574,6 @@ This library implements powerful and flexible curry decorators.
 - Support for variable arguments of the form *args , **kwargs.
 - The ability to use positional and/or named arguments in any quantity or combination.
 - The arguments that haven't been supplied yet are clearly visible in the debug print
-- Support currying for sync and async functions(different currying decorators).
 
 ### Currying examples
 #### Preserving the signature requirements:
@@ -658,23 +657,23 @@ print(cr3)       # __main__.Curry(<function test at ...>, 1, 0, 9, 9, c=100)(**k
 #### Async currying:
 ```python
 import asyncio
-from mafunca.curry import async_curry
+from mafunca.curry import curry
 
-@async_curry
+@curry
 async def for_curry(a: int, b: int, c: int = 0, d: int = 0) -> list[int]:
     await asyncio.sleep(0)
     return [a, b, c, d]
 
-# the __call__ method of the internal object that does all the work is asynchronous
-# therefore, we can't write like this: await for_curry(1)(2)(3)(4)
-# we have to make intermediate assignments
-async def main():
-    res1 = await for_curry(1)
-    res2 = await res1(2)
-    res3 = await res2(3)
-    res4 = await res3(4)         # [1, 2, 3, 4]
 
-    res5 = await for_curry()
+async def main():
+    res1 = for_curry(1)
+    res2 = res1(2)
+    res3 = res2(3)
+    res4 = res3(4)
+    print(res4)  # <coroutine object for_curry at ...>
+    await res4   # [1, 2, 3, 4]
+
+    res5 = for_curry()
     res6 = await res5(b=2, a=1)  # [1, 2, 0, 0]
 
 asyncio.run(main())
