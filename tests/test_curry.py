@@ -4,6 +4,7 @@ import asyncio
 
 from mafunca.common.exceptions import CurryBadArguments
 from mafunca.curry import curry
+from mafunca.specials import impure, is_impure
 
 
 class TestCurry(unittest.TestCase):
@@ -50,6 +51,17 @@ class TestCurry(unittest.TestCase):
         with self.assertRaises(CurryBadArguments):
             for_curry(c=1)
         self.assertEqual(for_curry(1)(b=2), 3)
+
+    def test_is_impure(self):
+        @impure
+        def test(a, b):
+            return a, b
+
+        curried = curry(test)
+        self.assertEqual(is_impure(curried), True)
+
+        curried = curried(3)
+        self.assertEqual(is_impure(curried), True)
 
 
 class TestAsyncCurry(unittest.IsolatedAsyncioTestCase):

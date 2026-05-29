@@ -4,6 +4,7 @@ from mafunca.result import Ok, Err
 from mafunca.maybe import Just, Nothing
 from mafunca.result_transformer import ResultMaybeT, from_null, from_try, ap, lift2, lift3, lift
 from mafunca.specials import impure
+from mafunca.curry import curry
 from mafunca.common.exceptions import MonadError
 
 
@@ -325,6 +326,17 @@ class TestResultMaybeT(unittest.TestCase):
 
         res = lift(many, err(1))
         self.assertTrue(res.is_error)
+
+    def test_curry_impurity(self):
+        @curry
+        @impure
+        def test(a, b):
+            return a + b
+
+        just = ResultMaybeT.just
+
+        with self.assertRaises(MonadError):
+            lift(test, just(1), just(2))
 
 
 if __name__ == "__main__":

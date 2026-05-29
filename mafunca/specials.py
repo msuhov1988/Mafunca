@@ -31,6 +31,10 @@ def is_impure(fn: Callable) -> bool:
     return bool(getattr(fn, _IMPURE_PROP, False))
 
 
+def _get_impure_property() -> str:
+    return _IMPURE_PROP
+
+
 def _panic_on_impure(monad: str, method: str, *funcs: Callable) -> None:
     """:raises MonadError: if function is impure"""
     for fn in funcs:

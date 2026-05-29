@@ -2,6 +2,7 @@ import unittest
 
 from mafunca.maybe import Just, Nothing, of, from_null, from_null_yield, ap, lift, lift2, lift3
 from mafunca.specials import impure
+from mafunca.curry import curry
 from mafunca.common.exceptions import MonadError
 
 
@@ -139,6 +140,15 @@ class TestMaybe(unittest.TestCase):
 
         res = lift(many, Nothing())
         self.assertTrue(res.is_nothing)
+
+    def test_curry_impurity(self):
+        @curry
+        @impure
+        def test(a, b):
+            return a + b
+
+        with self.assertRaises(MonadError):
+            lift(test, Just(1), Just(2))
 
 
 if __name__ == "__main__":

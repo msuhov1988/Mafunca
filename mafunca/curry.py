@@ -3,6 +3,8 @@ from collections.abc import Callable
 from typing import TypeVar, Generic, Union
 
 from mafunca.common.exceptions import CurryBadArguments
+from mafunca.specials import is_impure
+from mafunca.specials import _get_impure_property  # noqa
 import mafunca.common._panics as panics # noqa
 
 
@@ -39,8 +41,11 @@ def _update_state(curry_obj: 'Curry', sig, pos, named) -> None:
 R = TypeVar("R")
 
 
+_IMPURE_PROP = _get_impure_property()
+
+
 class Curry(Generic[R]):
-    __slots__ = ('_func', '_sig', '_pos', '_named')
+    __slots__ = ('_func', '_sig', '_pos', '_named', f'{_IMPURE_PROP}')
 
     def __init__(self, fn: Callable[..., R]):
         """:raises CurryBadFunctionError: passed function is not suitable"""
@@ -49,6 +54,7 @@ class Curry(Generic[R]):
         self._sig = inspect.signature(fn)
         self._pos = []
         self._named = {}
+        setattr(self, _IMPURE_PROP, is_impure(fn))
 
     @property
     def origin(self) -> Callable[..., R]:
