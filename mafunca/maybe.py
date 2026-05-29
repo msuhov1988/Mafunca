@@ -132,11 +132,11 @@ def ap(fn: Maybe[Callable[[T], R]], val: Maybe[T]) -> Maybe[R]:
         Applies value enclosed in the Maybe to a function also in the Maybe.
         :raises MonadError: if function in the container is marked as impure
     """
-    if fn.is_nothing:
-        return Nothing()
+    if isinstance(fn, Nothing):
+        return fn
     _panic_on_impure('maybe module', 'ap', fn.value)
-    if val.is_nothing:
-        return Nothing()
+    if isinstance(val, Nothing):
+        return val
     return Just(fn.value(val.value))
 
 

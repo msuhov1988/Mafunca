@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from collections.abc import Callable
 from functools import wraps
-from typing import TypeVar, Generic, Union, ParamSpec, Any
+from typing import TypeVar, Generic, Union, ParamSpec, cast, Any
 
 from mafunca.maybe import Just, Nothing, Maybe, ap as maybe_ap
 from mafunca.result import Ok, Err, Result
@@ -78,17 +78,17 @@ class ResultMaybeT(Generic[T, E]):
         """:raises MonadError: if the passed function is marked as impure"""
         _panic_on_impure(self.__class__.__name__, 'map', fn)
         if self.inner.is_error:
-            return self
+            return cast(ResultMaybeT[R, E], self)
         maybe = self.inner.value
         if maybe.is_nothing:
-            return self
+            return cast(ResultMaybeT[R, E], self)
         return ResultMaybeT(Ok(Just(fn(maybe.value))))
 
     def map_maybe(self, fn: Callable[[T], Maybe[R]]) -> 'ResultMaybeT[R, E]':
         """:raises MonadError: if the passed function is marked as impure"""
         _panic_on_impure(self.__class__.__name__, 'map_maybe', fn)
         if self.inner.is_error:
-            return self
+            return cast(ResultMaybeT[R, E], self)
         maybe = self.inner.value
         return ResultMaybeT.wrap_maybe(maybe.bind(fn))
 
@@ -96,20 +96,20 @@ class ResultMaybeT(Generic[T, E]):
         """:raises MonadError: if the passed function is marked as impure"""
         _panic_on_impure(self.__class__.__name__, 'map_result', fn)
         if self.inner.is_error:
-            return self
+            return cast(ResultMaybeT[R, E], self)
         maybe = self.inner.value
         if maybe.is_nothing:
-            return self
+            return cast(ResultMaybeT[R, E], self)
         return ResultMaybeT.wrap_result(fn(maybe.value))
 
     def bind(self, fn: Callable[[T], 'ResultMaybeT[R, E]']) -> 'ResultMaybeT[R, E]':
         """:raises MonadError: if the passed function is marked as impure"""
         _panic_on_impure(self.__class__.__name__, 'bind', fn)
         if self.inner.is_error:
-            return self
+            return cast(ResultMaybeT[R, E], self)
         maybe = self.inner.value
         if maybe.is_nothing:
-            return self
+            return cast(ResultMaybeT[R, E], self)
         return fn(maybe.value)
 
     def map_error(self, fn: Callable[[E], NewE]) -> 'ResultMaybeT[T, NewE]':
@@ -174,12 +174,12 @@ def ap(fn: ResultMaybeT[Callable[[T], R], E], val: ResultMaybeT[T, E]) -> Result
         :raises MonadError: if function in the container is marked as impure.
     """
     if fn.inner.is_error:
-        return fn
+        return cast(ResultMaybeT[R, E], fn)
     if fn.inner.value.is_nothing:
-        return fn
+        return cast(ResultMaybeT[R, E], fn)
     _panic_on_impure('result_maybe module', 'ap', fn.inner.value.value)
     if val.inner.is_error:
-        return val
+        return cast(ResultMaybeT[R, E], val)
     return ResultMaybeT.wrap_maybe(maybe_ap(fn.inner.value, val.inner.value))
 
 
@@ -218,7 +218,7 @@ def lift(fn: Callable[..., R], *args: ResultMaybeT[Any, E]) -> ResultMaybeT[Unio
        that waits for the remaining arguments
        :raises MonadError: if passed function is marked as impure
     """
-    _panic_on_impure('result module', 'lift', fn)
+    _panic_on_impure('result_maybe module', 'lift', fn)
     result = ResultMaybeT.just(curry(fn) if not isinstance(fn, Curry) else fn)
     for arg in args:
         result = ap(result, arg)

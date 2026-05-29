@@ -144,11 +144,11 @@ def ap(fn: Result[Callable[[T], R], E], val: Result[T, E]) -> Result[R, E]:
         Applies value enclosed in the Result to a function also in the Result.
         :raises MonadError: if function in the container is marked as impure
     """
-    if fn.is_error:
-        return Err(fn.error)
+    if isinstance(fn, Err):
+        return fn
     _panic_on_impure('result module', 'ap', fn.value)
-    if val.is_error:
-        return Err(val.error)
+    if isinstance(val, Err):
+        return val
     return Ok(fn.value(val.value))
 
 
