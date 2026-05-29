@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from collections.abc import Callable
 from functools import wraps
-from typing import TypeVar, TypeAlias, Generic, Union, ParamSpec, Any
+from typing import TypeVar, TypeAlias, Generic, Union, ParamSpec, Never, Any
 
 from mafunca.specials import is_impure
 from mafunca.curry import curry, Curry
@@ -45,7 +45,7 @@ class Ok(Generic[T]):
     def is_error(self) -> bool:
         return False
 
-    def map(self, fn: Callable[[T], R]) -> 'Result[R, E]':
+    def map(self, fn: Callable[[T], R]) -> 'Ok[R]':
         """:raises MonadError: if the passed function is marked as impure"""
         _panic_on_impure(self.__class__.__name__, 'map', fn)
         return Ok(fn(self.value))
@@ -55,7 +55,7 @@ class Ok(Generic[T]):
         _panic_on_impure(self.__class__.__name__, 'bind', fn)
         return fn(self.value)
 
-    def map_error(self, fn: Callable[[E], NewE]) -> 'Result[T, NewE]':
+    def map_error(self, fn: Callable[[Never], NewE]) -> 'Ok[T]':
         """:raises MonadError: if the passed function is marked as impure"""
         _panic_on_impure(self.__class__.__name__, 'map_error', fn)
         return self
@@ -63,7 +63,7 @@ class Ok(Generic[T]):
     def get_or_else(self, alter: T) -> T:  # noqa
         return self.value
 
-    def unfold(self, *, ok: Callable[[T], R], err: Callable[[E], R]) -> R:
+    def unfold(self, *, ok: Callable[[T], R], err: Callable[[Never], R]) -> R:
         """:raises MonadError: if the passed functions are marked as impure"""
         _panic_on_impure(self.__class__.__name__, 'unfold', ok, err)
         return ok(self.value)
@@ -82,17 +82,17 @@ class Err(Generic[E]):
     def is_error(self) -> bool:
         return True
 
-    def map(self, fn: Callable[[T], R]) -> 'Result[R, E]':
+    def map(self, fn: Callable[[Never], R]) -> 'Err[E]':
         """:raises MonadError: if the passed function is marked as impure"""
         _panic_on_impure(self.__class__.__name__, 'map', fn)
         return self
 
-    def bind(self, fn: Callable[[T], 'Result[R, E]']) -> 'Result[R, E]':
+    def bind(self, fn: Callable[[Never], 'Result[R, E]']) -> 'Err[E]':
         """:raises MonadError: if the passed function is marked as impure"""
         _panic_on_impure(self.__class__.__name__, 'bind', fn)
         return self
 
-    def map_error(self, fn: Callable[[E], NewE]) -> 'Result[T, NewE]':
+    def map_error(self, fn: Callable[[E], NewE]) -> 'Err[NewE]':
         """:raises MonadError: if the passed function is marked as impure"""
         _panic_on_impure(self.__class__.__name__, 'map_error', fn)
         return Err(fn(self.error))
@@ -100,7 +100,7 @@ class Err(Generic[E]):
     def get_or_else(self, alter: T) -> T:  # noqa
         return alter
 
-    def unfold(self, *, ok: Callable[[T], R], err: Callable[[E], R]) -> R:
+    def unfold(self, *, ok: Callable[[Never], R], err: Callable[[E], R]) -> R:
         """:raises MonadError: if the passed functions are marked as impure"""
         _panic_on_impure(self.__class__.__name__, 'unfold', ok, err)
         return err(self.error)
@@ -118,16 +118,17 @@ Args = ParamSpec('Args')
 A1 = TypeVar("A1")
 A2 = TypeVar("A2")
 A3 = TypeVar("A3")
-ExcSubtype = TypeVar('ExcSubtype', bound=Exception)
 
 
-def from_try(fn: Callable[Args, R]) -> Callable[Args, Result[R, ExcSubtype]]:
+def from_try(fn: Callable[Args, R]) -> Callable[Args, Result[R, Exception]]:
     """
         Decorator. Performs a function, catching possible errors - heirs of 'Exception'.
         'MonadError' is not suppressed.
+        :raises MonadError: if the passed function is marked as impure
     """
+    _panic_on_impure('result module', 'from_try', fn)
 
-    def from_try_inner(*args: Args.args, **kwargs: Args.kwargs) -> Result[R, ExcSubtype]:
+    def from_try_inner(*args: Args.args, **kwargs: Args.kwargs) -> Result[R, Exception]:
         try:
             return Ok(fn(*args, **kwargs))
         except Exception as err:
@@ -139,11 +140,15 @@ def from_try(fn: Callable[Args, R]) -> Callable[Args, Result[R, ExcSubtype]]:
 
 
 def ap(fn: Result[Callable[[T], R], E], val: Result[T, E]) -> Result[R, E]:
-    """Applies value enclosed in the Result to a function also in the Result"""
+    """
+        Applies value enclosed in the Result to a function also in the Result.
+        :raises MonadError: if function in the container is marked as impure
+    """
     if fn.is_error:
-        return fn
+        return Err(fn.error)
+    _panic_on_impure('result module', 'ap', fn.value)
     if val.is_error:
-        return val
+        return Err(val.error)
     return Ok(fn.value(val.value))
 
 
@@ -179,8 +184,10 @@ def lift(fn: Callable[..., R], *args: Result[Any, E]) -> Result[Union[Curry[R], 
     """
        Wraps the passed function in the Result and applies the applicative method.
        If fewer arguments are passed than the function requires, it returns a curried version in the Result container
-       that waits for the remaining arguments
+       that waits for the remaining arguments.
+       :raises MonadError: if passed function is marked as impure
     """
+    _panic_on_impure('result module', 'lift', fn)
     result = Ok(curry(fn) if not isinstance(fn, Curry) else fn)
     for arg in args:
         result = ap(result, arg)

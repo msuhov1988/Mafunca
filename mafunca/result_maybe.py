@@ -10,6 +10,17 @@ from mafunca.curry import curry, Curry
 from mafunca.common.exceptions import MonadError
 
 
+__all__ = [
+    'ResultMaybeT',
+    'from_null',
+    'from_try',
+    'ap',
+    'lift2',
+    'lift3',
+    'lift',
+]
+
+
 def _panic_on_impure(monad: str, method: str, *funcs: Callable) -> None:
     for fn in funcs:
         if is_impure(fn):
@@ -124,7 +135,6 @@ Args = ParamSpec('Args')
 A1 = TypeVar("A1")
 A2 = TypeVar("A2")
 A3 = TypeVar("A3")
-ExcSubtype = TypeVar('ExcSubtype', bound=Exception)
 
 
 def from_null(
@@ -140,10 +150,12 @@ def from_try(is_nullable: Callable[[R], bool] = lambda v: v is None):
         Decorator. Performs a function, catching possible errors - heirs of 'Exception'
         and wraps the result based on 'is_nullable' predicate.
         'MonadError' is not suppressed.
+        :raises MonadError: if the passed function is marked as impure
     """
-    def decorator(fn: Callable[Args, R]) -> Callable[Args, ResultMaybeT[R, ExcSubtype]]:
+    def decorator(fn: Callable[Args, R]) -> Callable[Args, ResultMaybeT[R, Exception]]:
+        _panic_on_impure('result_maybe module', 'from_try', fn)
 
-        def wrapper(*args: Args.args, **kwargs: Args.kwargs) -> ResultMaybeT[R, ExcSubtype]:
+        def wrapper(*args: Args.args, **kwargs: Args.kwargs) -> ResultMaybeT[R, Exception]:
             try:
                 return from_null(fn(*args, **kwargs), is_nullable)
             except Exception as err:
@@ -157,11 +169,15 @@ def from_try(is_nullable: Callable[[R], bool] = lambda v: v is None):
 
 
 def ap(fn: ResultMaybeT[Callable[[T], R], E], val: ResultMaybeT[T, E]) -> ResultMaybeT[R, E]:
-    """Applies value enclosed in the container to a function also in the container"""
+    """
+        Applies value enclosed in the container to a function also in the container.
+        :raises MonadError: if function in the container is marked as impure.
+    """
     if fn.inner.is_error:
         return fn
     if fn.inner.value.is_nothing:
         return fn
+    _panic_on_impure('result_maybe module', 'ap', fn.inner.value.value)
     if val.inner.is_error:
         return val
     return ResultMaybeT.wrap_maybe(maybe_ap(fn.inner.value, val.inner.value))
@@ -200,7 +216,9 @@ def lift(fn: Callable[..., R], *args: ResultMaybeT[Any, E]) -> ResultMaybeT[Unio
        Wraps the passed function in the container and applies the applicative method.
        If fewer arguments are passed than the function requires, it returns a curried version in the container
        that waits for the remaining arguments
+       :raises MonadError: if passed function is marked as impure
     """
+    _panic_on_impure('result module', 'lift', fn)
     result = ResultMaybeT.just(curry(fn) if not isinstance(fn, Curry) else fn)
     for arg in args:
         result = ap(result, arg)
