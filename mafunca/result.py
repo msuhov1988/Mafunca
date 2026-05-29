@@ -4,7 +4,7 @@ from functools import wraps
 from typing import TypeVar, TypeAlias, Generic, Union, ParamSpec, Any
 
 from mafunca.specials import is_impure
-from mafunca.curry import curry
+from mafunca.curry import curry, Curry
 from mafunca.common.exceptions import MonadError
 
 __all__ = [
@@ -122,12 +122,17 @@ ExcSubtype = TypeVar('ExcSubtype', bound=Exception)
 
 
 def from_try(fn: Callable[Args, R]) -> Callable[Args, Result[R, ExcSubtype]]:
-    """Decorator. Performs a function, catching possible errors - heirs of 'Exception'"""
+    """
+        Decorator. Performs a function, catching possible errors - heirs of 'Exception'.
+        'MonadError' is not suppressed.
+    """
 
     def from_try_inner(*args: Args.args, **kwargs: Args.kwargs) -> Result[R, ExcSubtype]:
         try:
             return Ok(fn(*args, **kwargs))
         except Exception as err:
+            if isinstance(err, MonadError):
+                raise err
             return Err(err)
 
     return wraps(fn)(from_try_inner)
@@ -170,12 +175,13 @@ def lift3(
     )
 
 
-def lift(fn: Callable[..., R], *args: Result[Any, E]) -> Result[R, E]:
+def lift(fn: Callable[..., R], *args: Result[Any, E]) -> Result[Union[Curry[R], R], E]:
     """
        Wraps the passed function in the Result and applies the applicative method.
-       Uses currying here.
+       If fewer arguments are passed than the function requires, it returns a curried version in the Result container
+       that waits for the remaining arguments
     """
-    result = Ok(curry(fn))
+    result = Ok(curry(fn) if not isinstance(fn, Curry) else fn)
     for arg in args:
         result = ap(result, arg)
     return result

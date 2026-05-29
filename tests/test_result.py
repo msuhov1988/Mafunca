@@ -73,6 +73,15 @@ class TestResult(unittest.TestCase):
         self.assertTrue(res.is_ok)
         self.assertEqual(res.unfold(ok=lambda x: x + 1, err=lambda _: 0), 103)
 
+    def test_from_try_monad_error(self):
+        @from_try
+        def raiser(a):
+            a = a + 1
+            raise MonadError("test", "test", "test")
+
+        with self.assertRaises(MonadError):
+            raiser(1)
+
     def test_ap(self):
         def one(a):
             return [a]
@@ -90,13 +99,13 @@ class TestResult(unittest.TestCase):
         def two(a, b):
             return [a, b]
 
-        res = lift2(two, Ok(1), Ok(2)).get_or_else(0)
+        res = lift2(two, Ok(1), Ok(2)).get_or_else([0])
         self.assertEqual(res, [1, 2])
         res = lift2(two, Ok(1), Err(2))
         self.assertTrue(res.is_error)
         self.assertEqual(res.error, 2)
-        res = lift2(two, Err(1), Ok(2)).get_or_else(0)
-        self.assertEqual(res, 0)
+        res = lift2(two, Err(1), Ok(2)).get_or_else([0])
+        self.assertEqual(res, [0])
 
     def test_lift3(self):
         def three(a, b, c):
@@ -104,7 +113,7 @@ class TestResult(unittest.TestCase):
 
         res = lift3(three, Ok(1), Ok(2), Ok(3)).get_or_else(0)
         self.assertEqual(res, [1, 2, 3])
-        res = lift3(three, Ok(1), Err(2), Ok(3))
+        res = lift3(three, Ok(1), Err(2), Err(3))
         self.assertTrue(res.is_error)
         self.assertEqual(res.error, 2)
         res = lift3(three, Ok(1), Err(2), Ok(3)).get_or_else(0)
@@ -121,6 +130,22 @@ class TestResult(unittest.TestCase):
         self.assertEqual(res.error, 2)
         res = lift(many, Ok(1), Err(2), Ok(3), Ok(4), Ok(5)).get_or_else(0)
         self.assertEqual(res, 0)
+
+    def test_lift_partial(self):
+        def many(a, b, c, d, e):
+            return [a, b, c, d, e]
+
+        res = lift(many, Ok(1), Ok(2), Ok(3))
+        self.assertTrue(callable(res.value))
+        self.assertIs(res.value.origin, many)
+        res = lift(res.value, Ok(4))
+        self.assertTrue(callable(res.value))
+        self.assertIs(res.value.origin, many)
+        res = lift(res.value, Ok(5)).get_or_else(0)
+        self.assertEqual(res, [1, 2, 3, 4, 5])
+
+        res = lift(many, Err(1))
+        self.assertTrue(res.is_error)
 
 
 if __name__ == "__main__":

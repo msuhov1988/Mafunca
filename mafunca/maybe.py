@@ -11,8 +11,8 @@ __all__ = [
     'Nothing',
     'Maybe',
     'of',
-    'nullable',
-    'nullable_yield',
+    'from_null',
+    'from_null_yield',
     'ap',
     'lift2',
     'lift3',
@@ -107,7 +107,7 @@ A2 = TypeVar("A2")
 A3 = TypeVar("A3")
 
 
-def nullable(
+def from_null(
         value: R,
         is_nullable: Callable[[R], bool] = lambda v: v is None
 ) -> Maybe[R]:
@@ -115,7 +115,7 @@ def nullable(
     return Nothing() if is_nullable(value) else Just(value)
 
 
-def nullable_yield(
+def from_null_yield(
         iterable: Iterable[R],
         is_nullable: Callable[[R], bool] = lambda v: v is None
 ) -> Iterator[Maybe[R]]:

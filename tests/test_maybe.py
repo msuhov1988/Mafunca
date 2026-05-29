@@ -1,6 +1,6 @@
 import unittest
 
-from mafunca.maybe import Just, Nothing, of, nullable, nullable_yield, ap, lift, lift2, lift3
+from mafunca.maybe import Just, Nothing, of, from_null, from_null_yield, ap, lift, lift2, lift3
 from mafunca.specials import impure
 from mafunca.common.exceptions import MonadError
 
@@ -52,25 +52,25 @@ class TestMaybe(unittest.TestCase):
             Just(1).map(fn_impure)
 
     def test_nullable(self):
-        res = nullable(1).map(lambda x: x + 1).bind(lambda x: Just(x))
+        res = from_null(1).map(lambda x: x + 1).bind(lambda x: Just(x))
         self.assertTrue(res.is_just)
         self.assertEqual(res.get_or_else(100), 2)
 
-        res = nullable(None).map(lambda x: x + 1).bind(lambda x: Just(x))
+        res = from_null(None).map(lambda x: x + 1).bind(lambda x: Just(x))
         self.assertTrue(res.is_nothing)
         self.assertEqual(res.get_or_else(100), 100)
 
-        res = nullable([], is_nullable=lambda lst: len(lst) == 0).map(lambda x: x + 1).bind(lambda x: Just(x))
+        res = from_null([], is_nullable=lambda lst: len(lst) == 0).map(lambda x: x + 1).bind(lambda x: Just(x))
         self.assertTrue(res.is_nothing)
         self.assertEqual(res.get_or_else(100), 100)
 
     def test_nullable_yield(self):
-        res = nullable_yield((i for i in range(10)), lambda v: v % 2 == 0)
+        res = from_null_yield((i for i in range(10)), lambda v: v % 2 == 0)
         res = list((m for m in res if m.is_nothing))
         self.assertEqual(len(res), 5)
 
         res = [1, None, 2, None, 3]
-        res = nullable_yield(res)
+        res = from_null_yield(res)
         res = list(m.get_or_else(100) for m in res if m.is_just)
         self.assertEqual(res, [1, 2, 3])
 
