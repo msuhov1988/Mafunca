@@ -69,7 +69,8 @@ class MaybeResultT(Generic[T, E]):
         return self.inner.is_nothing
 
     def map(self, fn: Callable[[T], R]) -> 'MaybeResultT[R, E]':
-        """:raises MonadError: from the underlying function/method if passed function is marked as impure"""
+        """:raises MonadError: if the passed function is marked as impure"""
+        _panic_on_impure(self.__class__.__name__, 'map', fn)
         if isinstance(self.inner, Nothing):
             return cast(MaybeResultT[R, E], self)
         result = self.inner.value
@@ -86,7 +87,8 @@ class MaybeResultT(Generic[T, E]):
         return MaybeResultT.wrap_maybe(fn(result.value))
 
     def map_result(self, fn: Callable[[T], Result[R, E]]) -> 'MaybeResultT[R, E]':
-        """:raises MonadError: from the underlying function/method if passed function is marked as impure"""
+        """:raises MonadError: if the passed function is marked as impure"""
+        _panic_on_impure(self.__class__.__name__, 'map_result', fn)
         if isinstance(self.inner, Nothing):
             return cast(MaybeResultT[R, E], self)
         result = self.inner.value
@@ -103,7 +105,8 @@ class MaybeResultT(Generic[T, E]):
         return fn(result.value)
 
     def map_error(self, fn: Callable[[E], NewE]) -> 'MaybeResultT[T, NewE]':
-        """:raises MonadError: from the underlying function/method if passed function is marked as impure"""
+        """:raises MonadError: if the passed function is marked as impure"""
+        _panic_on_impure(self.__class__.__name__, 'map_error', fn)
         if isinstance(self.inner, Nothing):
             return cast(MaybeResultT[T, NewE], self)
         result = self.inner.value
@@ -163,12 +166,13 @@ def from_try(is_nullable: Callable[[R], bool] = lambda v: v is None):
 def ap(fn: MaybeResultT[Callable[[T], R], E], val: MaybeResultT[T, E]) -> MaybeResultT[R, E]:
     """
         Applies value enclosed in the container to a function also in the container.
-        :raises MonadError: from the underlying function/method if passed function is marked as impure
+        :raises MonadError: if the passed function is marked as impure
     """
     if isinstance(fn.inner, Nothing):
         return cast(MaybeResultT[R, E], fn)
     if isinstance(fn.inner.value, Err):
         return cast(MaybeResultT[R, E], fn)
+    _panic_on_impure('maybe_transformer', 'ap', fn.inner.value.value)
     if isinstance(val.inner, Nothing):
         return cast(MaybeResultT[R, E], val)
     return MaybeResultT.wrap_result(result_ap(fn.inner.value, val.inner.value))
