@@ -3,9 +3,10 @@ from collections.abc import Callable
 from functools import wraps
 from typing import TypeVar, TypeAlias, Generic, Union, ParamSpec, Never, Any
 
-from mafunca.specials import is_impure
 from mafunca.curry import curry, Curry
 from mafunca.common.exceptions import MonadError
+from mafunca.specials import _panic_on_impure  # noqa
+
 
 __all__ = [
     'Ok',
@@ -18,12 +19,6 @@ __all__ = [
     'lift3',
     'lift',
 ]
-
-
-def _panic_on_impure(monad: str, method: str, *funcs: Callable) -> None:
-    for fn in funcs:
-        if is_impure(fn):
-            raise MonadError(monad, method, f"impure function '{fn}' can not be used")
 
 
 T = TypeVar("T")
@@ -157,7 +152,10 @@ def lift2(
         arg1: Result[A1, E],
         arg2: Result[A2, E]
 ) -> Result[R, E]:
-    """Wraps the passed function in the Result and applies the applicative method"""
+    """
+        Wraps the passed function in the Result and applies the applicative method
+        :raises MonadError: from the underlying function/method if passed function is marked as impure
+    """
     return ap(
         ap(Ok(lambda a: lambda b: fn(a, b)), arg1),
         arg2
@@ -170,7 +168,10 @@ def lift3(
         arg2: Result[A2, E],
         arg3: Result[A3, E]
 ) -> Result[R, E]:
-    """Wraps the passed function in the Result and applies the applicative method"""
+    """
+        Wraps the passed function in the Result and applies the applicative method
+        :raises MonadError: from the underlying function/method if passed function is marked as impure
+    """
     return ap(
         ap(
             ap(Ok(lambda a: lambda b: lambda c: fn(a, b, c)), arg1),
@@ -185,7 +186,7 @@ def lift(fn: Callable[..., R], *args: Result[Any, E]) -> Result[Union[Curry[R], 
        Wraps the passed function in the Result and applies the applicative method.
        If fewer arguments are passed than the function requires, it returns a curried version in the Result container
        that waits for the remaining arguments.
-       :raises MonadError: if passed function is marked as impure
+       :raises MonadError: from the underlying function/method if passed function is marked as impure
     """
     result = Ok(curry(fn) if not isinstance(fn, Curry) else fn)
     for arg in args:

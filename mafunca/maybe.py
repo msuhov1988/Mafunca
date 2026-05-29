@@ -2,9 +2,9 @@ from dataclasses import dataclass
 from collections.abc import Callable, Iterable, Iterator
 from typing import TypeVar, TypeAlias, Generic, Union, ParamSpec, Never, Any
 
-from mafunca.specials import is_impure
 from mafunca.curry import curry, Curry
-from mafunca.common.exceptions import MonadError
+from mafunca.specials import _panic_on_impure  # noqa
+
 
 __all__ = [
     'Just',
@@ -18,12 +18,6 @@ __all__ = [
     'lift3',
     'lift',
 ]
-
-
-def _panic_on_impure(monad: str, method: str, *funcs: Callable) -> None:
-    for fn in funcs:
-        if is_impure(fn):
-            raise MonadError(monad, method, f"impure function '{fn}' can not be used")
 
 
 T = TypeVar("T")
@@ -145,7 +139,10 @@ def lift2(
         arg1: Maybe[A1],
         arg2: Maybe[A2]
 ) -> Maybe[R]:
-    """Wraps the passed function in the Maybe and applies the applicative method"""
+    """
+        Wraps the passed function in the Maybe and applies the applicative method
+        :raises MonadError: from the underlying function/method if passed function is marked as impure
+    """
     return ap(
         ap(Just(lambda a: lambda b: fn(a, b)), arg1),
         arg2
@@ -158,7 +155,10 @@ def lift3(
         arg2: Maybe[A2],
         arg3: Maybe[A3]
 ) -> Maybe[R]:
-    """Wraps the passed function in the Maybe and applies the applicative method"""
+    """
+        Wraps the passed function in the Maybe and applies the applicative method
+        :raises MonadError: from the underlying function/method if passed function is marked as impure
+    """
     return ap(
         ap(
             ap(Just(lambda a: lambda b: lambda c: fn(a, b, c)), arg1),
@@ -173,7 +173,7 @@ def lift(fn: Callable[..., R], *args: Maybe[Any]) -> Maybe[Union[Curry[R], R]]:
        Wraps the passed function in the Maybe and applies the applicative method.
        If fewer arguments are passed than the function requires, it returns a curried version in the Maybe container
        that waits for the remaining arguments.
-       :raises MonadError: if passed function is marked as impure
+       :raises MonadError: from the underlying function/method if passed function is marked as impure
     """
     result = Just(curry(fn) if not isinstance(fn, Curry) else fn)
     for arg in args:

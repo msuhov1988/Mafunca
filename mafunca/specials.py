@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from typing import TypeVar, ParamSpec
-from mafunca.common.exceptions import ImpureMarkError
+from mafunca.common.exceptions import ImpureMarkError, MonadError
 
 
 __all__ = ["impure", "is_impure"]
@@ -29,3 +29,10 @@ def impure(fn: Callable[Args, R]) -> Callable[Args, R]:
 def is_impure(fn: Callable) -> bool:
     """Checking that the function was marked as impure"""
     return bool(getattr(fn, _IMPURE_PROP, False))
+
+
+def _panic_on_impure(monad: str, method: str, *funcs: Callable) -> None:
+    """:raises MonadError: if function is impure"""
+    for fn in funcs:
+        if is_impure(fn):
+            raise MonadError(monad, method, f"impure function '{fn}' can not be used")

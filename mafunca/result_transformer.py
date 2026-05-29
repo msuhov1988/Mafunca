@@ -5,9 +5,9 @@ from typing import TypeVar, Generic, Union, ParamSpec, cast, Any
 
 from mafunca.maybe import Just, Nothing, Maybe, ap as maybe_ap
 from mafunca.result import Ok, Err, Result
-from mafunca.specials import is_impure
 from mafunca.curry import curry, Curry
 from mafunca.common.exceptions import MonadError
+from mafunca.specials import _panic_on_impure  # noqa
 
 
 __all__ = [
@@ -19,12 +19,6 @@ __all__ = [
     'lift3',
     'lift',
 ]
-
-
-def _panic_on_impure(monad: str, method: str, *funcs: Callable) -> None:
-    for fn in funcs:
-        if is_impure(fn):
-            raise MonadError(monad, method, f"impure function '{fn}' can not be used")
 
 
 T = TypeVar("T")
@@ -75,17 +69,14 @@ class ResultMaybeT(Generic[T, E]):
         return self.inner.is_error
 
     def map(self, fn: Callable[[T], R]) -> 'ResultMaybeT[R, E]':
-        """:raises MonadError: if the passed function is marked as impure"""
-        _panic_on_impure(self.__class__.__name__, 'map', fn)
+        """:raises MonadError: from the underlying function/method if passed function is marked as impure"""
         if isinstance(self.inner, Err):
             return cast(ResultMaybeT[R, E], self)
         maybe = self.inner.value
-        if isinstance(maybe, Nothing):
-            return cast(ResultMaybeT[R, E], self)
-        return ResultMaybeT(Ok(Just(fn(maybe.value))))
+        return ResultMaybeT(Ok(maybe.map(fn)))
 
     def map_maybe(self, fn: Callable[[T], Maybe[R]]) -> 'ResultMaybeT[R, E]':
-        """:raises MonadError: if the passed function is marked as impure"""
+        """:raises MonadError: from the underlying function/method if passed function is marked as impure"""
         if isinstance(self.inner, Err):
             return cast(ResultMaybeT[R, E], self)
         maybe = self.inner.value
@@ -112,7 +103,7 @@ class ResultMaybeT(Generic[T, E]):
         return fn(maybe.value)
 
     def map_error(self, fn: Callable[[E], NewE]) -> 'ResultMaybeT[T, NewE]':
-        """:raises MonadError: if the passed function is marked as impure"""
+        """:raises MonadError: from the underlying function/method if passed function is marked as impure"""
         return ResultMaybeT(self.inner.map_error(fn))
 
     def get_or_else(self, alter: T) -> T:
@@ -169,7 +160,7 @@ def from_try(is_nullable: Callable[[R], bool] = lambda v: v is None):
 def ap(fn: ResultMaybeT[Callable[[T], R], E], val: ResultMaybeT[T, E]) -> ResultMaybeT[R, E]:
     """
         Applies value enclosed in the container to a function also in the container.
-        :raises MonadError: if function in the container is marked as impure.
+        :raises MonadError: from the underlying function/method if passed function is marked as impure
     """
     if isinstance(fn.inner, Err):
         return cast(ResultMaybeT[R, E], fn)
@@ -185,7 +176,10 @@ def lift2(
         arg1: ResultMaybeT[A1, E],
         arg2: ResultMaybeT[A2, E]
 ) -> ResultMaybeT[R, E]:
-    """Wraps the passed function in the container and applies the applicative method"""
+    """
+        Wraps the passed function in the container and applies the applicative method
+        :raises MonadError: from the underlying function/method if passed function is marked as impure
+    """
     return ap(
         ap(ResultMaybeT.just(lambda a: lambda b: fn(a, b)), arg1),
         arg2
@@ -198,7 +192,10 @@ def lift3(
         arg2: ResultMaybeT[A2, E],
         arg3: ResultMaybeT[A3, E]
 ) -> ResultMaybeT[R, E]:
-    """Wraps the passed function in the container and applies the applicative method"""
+    """
+        Wraps the passed function in the container and applies the applicative method
+        :raises MonadError: from the underlying function/method if passed function is marked as impure
+    """
     return ap(
         ap(
             ap(ResultMaybeT.just(lambda a: lambda b: lambda c: fn(a, b, c)), arg1),
@@ -213,7 +210,7 @@ def lift(fn: Callable[..., R], *args: ResultMaybeT[Any, E]) -> ResultMaybeT[Unio
        Wraps the passed function in the container and applies the applicative method.
        If fewer arguments are passed than the function requires, it returns a curried version in the container
        that waits for the remaining arguments
-       :raises MonadError: if passed function is marked as impure
+       :raises MonadError: from the underlying function/method if passed function is marked as impure
     """
     result = ResultMaybeT.just(curry(fn) if not isinstance(fn, Curry) else fn)
     for arg in args:
