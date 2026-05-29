@@ -187,7 +187,6 @@ def lift(fn: Callable[..., R], *args: Result[Any, E]) -> Result[Union[Curry[R], 
        that waits for the remaining arguments.
        :raises MonadError: if passed function is marked as impure
     """
-    _panic_on_impure('result module', 'lift', fn)
     result = Ok(curry(fn) if not isinstance(fn, Curry) else fn)
     for arg in args:
         result = ap(result, arg)

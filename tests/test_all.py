@@ -5,7 +5,8 @@ import sys
 from test_curry import TestCurry, TestAsyncCurry
 from test_result import TestResult
 from test_maybe import TestMaybe
-from test_result_maybe import TestResultMaybeT
+from test_result_transformer import TestResultMaybeT
+from test_maybe_transformer import TestMaybeResultT
 from test_eff_sync import TestEffSync
 from test_eff import TestEff
 from test_resilient_sync import TestResilientSync
@@ -27,6 +28,7 @@ if __name__ == "__main__":
         TestResult,
         TestMaybe,
         TestResultMaybeT,
+        TestMaybeResultT,
         TestEffSync,
         TestEff,
         TestResilientSync,

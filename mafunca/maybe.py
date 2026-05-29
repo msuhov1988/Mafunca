@@ -3,7 +3,7 @@ from collections.abc import Callable, Iterable, Iterator
 from typing import TypeVar, TypeAlias, Generic, Union, ParamSpec, Never, Any
 
 from mafunca.specials import is_impure
-from mafunca.curry import curry
+from mafunca.curry import curry, Curry
 from mafunca.common.exceptions import MonadError
 
 __all__ = [
@@ -168,15 +168,14 @@ def lift3(
     )
 
 
-def lift(fn: Callable[..., R], *args: Maybe[Any]) -> Maybe[R]:
+def lift(fn: Callable[..., R], *args: Maybe[Any]) -> Maybe[Union[Curry[R], R]]:
     """
        Wraps the passed function in the Maybe and applies the applicative method.
        If fewer arguments are passed than the function requires, it returns a curried version in the Maybe container
        that waits for the remaining arguments.
        :raises MonadError: if passed function is marked as impure
     """
-    _panic_on_impure('maybe module', 'lift', fn)
-    result = Just(curry(fn))
+    result = Just(curry(fn) if not isinstance(fn, Curry) else fn)
     for arg in args:
         result = ap(result, arg)
     return result

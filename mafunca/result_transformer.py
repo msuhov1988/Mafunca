@@ -56,19 +56,19 @@ class ResultMaybeT(Generic[T, E]):
 
     @staticmethod
     def wrap_result(result: Result[T, E]) -> 'ResultMaybeT[T, E]':
-        if result.is_error:
+        if isinstance(result, Err):
             return ResultMaybeT(result)
         return ResultMaybeT(Ok(Just(result.value)))
 
     @property
     def is_just(self) -> bool:
         inner = self.inner
-        return inner.is_ok and inner.value.is_just
+        return isinstance(inner, Ok) and inner.value.is_just
 
     @property
     def is_nothing(self) -> bool:
         inner = self.inner
-        return inner.is_ok and inner.value.is_nothing
+        return isinstance(inner, Ok) and inner.value.is_nothing
 
     @property
     def is_error(self) -> bool:
@@ -77,17 +77,16 @@ class ResultMaybeT(Generic[T, E]):
     def map(self, fn: Callable[[T], R]) -> 'ResultMaybeT[R, E]':
         """:raises MonadError: if the passed function is marked as impure"""
         _panic_on_impure(self.__class__.__name__, 'map', fn)
-        if self.inner.is_error:
+        if isinstance(self.inner, Err):
             return cast(ResultMaybeT[R, E], self)
         maybe = self.inner.value
-        if maybe.is_nothing:
+        if isinstance(maybe, Nothing):
             return cast(ResultMaybeT[R, E], self)
         return ResultMaybeT(Ok(Just(fn(maybe.value))))
 
     def map_maybe(self, fn: Callable[[T], Maybe[R]]) -> 'ResultMaybeT[R, E]':
         """:raises MonadError: if the passed function is marked as impure"""
-        _panic_on_impure(self.__class__.__name__, 'map_maybe', fn)
-        if self.inner.is_error:
+        if isinstance(self.inner, Err):
             return cast(ResultMaybeT[R, E], self)
         maybe = self.inner.value
         return ResultMaybeT.wrap_maybe(maybe.bind(fn))
@@ -95,38 +94,37 @@ class ResultMaybeT(Generic[T, E]):
     def map_result(self, fn: Callable[[T], Result[R, E]]) -> 'ResultMaybeT[R, E]':
         """:raises MonadError: if the passed function is marked as impure"""
         _panic_on_impure(self.__class__.__name__, 'map_result', fn)
-        if self.inner.is_error:
+        if isinstance(self.inner, Err):
             return cast(ResultMaybeT[R, E], self)
         maybe = self.inner.value
-        if maybe.is_nothing:
+        if isinstance(maybe, Nothing):
             return cast(ResultMaybeT[R, E], self)
         return ResultMaybeT.wrap_result(fn(maybe.value))
 
     def bind(self, fn: Callable[[T], 'ResultMaybeT[R, E]']) -> 'ResultMaybeT[R, E]':
         """:raises MonadError: if the passed function is marked as impure"""
         _panic_on_impure(self.__class__.__name__, 'bind', fn)
-        if self.inner.is_error:
+        if isinstance(self.inner, Err):
             return cast(ResultMaybeT[R, E], self)
         maybe = self.inner.value
-        if maybe.is_nothing:
+        if isinstance(maybe, Nothing):
             return cast(ResultMaybeT[R, E], self)
         return fn(maybe.value)
 
     def map_error(self, fn: Callable[[E], NewE]) -> 'ResultMaybeT[T, NewE]':
         """:raises MonadError: if the passed function is marked as impure"""
-        _panic_on_impure(self.__class__.__name__, 'map_error', fn)
         return ResultMaybeT(self.inner.map_error(fn))
 
     def get_or_else(self, alter: T) -> T:
         inner = self.inner
-        if inner.is_error or inner.value.is_nothing:
+        if isinstance(inner, Err) or isinstance(inner.value, Nothing):
             return alter
         return inner.value.value
 
     def unfold(self, *, ok: Callable[[Maybe[T]], R], err: Callable[[E], R]) -> R:
         """:raises MonadError: if the passed function is marked as impure"""
         _panic_on_impure(self.__class__.__name__, 'unfold', ok, err)
-        if self.inner.is_error:
+        if isinstance(self.inner, Err):
             return err(self.inner.error)
         return ok(self.inner.value)
 
@@ -153,7 +151,7 @@ def from_try(is_nullable: Callable[[R], bool] = lambda v: v is None):
         :raises MonadError: if the passed function is marked as impure
     """
     def decorator(fn: Callable[Args, R]) -> Callable[Args, ResultMaybeT[R, Exception]]:
-        _panic_on_impure('result_maybe module', 'from_try', fn)
+        _panic_on_impure('result_transformer', 'from_try', fn)
 
         def wrapper(*args: Args.args, **kwargs: Args.kwargs) -> ResultMaybeT[R, Exception]:
             try:
@@ -173,12 +171,11 @@ def ap(fn: ResultMaybeT[Callable[[T], R], E], val: ResultMaybeT[T, E]) -> Result
         Applies value enclosed in the container to a function also in the container.
         :raises MonadError: if function in the container is marked as impure.
     """
-    if fn.inner.is_error:
+    if isinstance(fn.inner, Err):
         return cast(ResultMaybeT[R, E], fn)
-    if fn.inner.value.is_nothing:
+    if isinstance(fn.inner.value, Nothing):
         return cast(ResultMaybeT[R, E], fn)
-    _panic_on_impure('result_maybe module', 'ap', fn.inner.value.value)
-    if val.inner.is_error:
+    if isinstance(val.inner, Err):
         return cast(ResultMaybeT[R, E], val)
     return ResultMaybeT.wrap_maybe(maybe_ap(fn.inner.value, val.inner.value))
 
@@ -218,7 +215,6 @@ def lift(fn: Callable[..., R], *args: ResultMaybeT[Any, E]) -> ResultMaybeT[Unio
        that waits for the remaining arguments
        :raises MonadError: if passed function is marked as impure
     """
-    _panic_on_impure('result_maybe module', 'lift', fn)
     result = ResultMaybeT.just(curry(fn) if not isinstance(fn, Curry) else fn)
     for arg in args:
         result = ap(result, arg)

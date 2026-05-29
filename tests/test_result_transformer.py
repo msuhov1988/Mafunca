@@ -2,7 +2,7 @@ import unittest
 
 from mafunca.result import Ok, Err
 from mafunca.maybe import Just, Nothing
-from mafunca.result_maybe import ResultMaybeT, from_null, from_try, ap, lift2, lift3, lift
+from mafunca.result_transformer import ResultMaybeT, from_null, from_try, ap, lift2, lift3, lift
 from mafunca.specials import impure
 from mafunca.common.exceptions import MonadError
 
