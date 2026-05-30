@@ -1,6 +1,6 @@
 import unittest
 
-from mafunca.result import Ok, Err, of, from_try, ap, lift, lift2, lift3
+from mafunca.result import Ok, Err, ok_of, from_try, ap, lift, lift2, lift3
 from mafunca.specials import impure
 from mafunca.curry import curry
 from mafunca.common.exceptions import MonadError
@@ -12,7 +12,7 @@ class TestResult(unittest.TestCase):
         self.assertTrue(right.is_ok)
         self.assertFalse(right.is_error)
 
-        from_unit = of(1)
+        from_unit = ok_of(1)
         self.assertTrue(from_unit.is_ok)
         self.assertFalse(from_unit.is_error)
 
@@ -21,7 +21,7 @@ class TestResult(unittest.TestCase):
         self.assertTrue(err.is_error)
 
     def test_ok_chains(self):
-        res = of(2).map(lambda x: x + 1).bind(lambda x: Ok(x + 1)).unfold(ok=lambda x: x ** 2, err=lambda _: None)
+        res = ok_of(2).map(lambda x: x + 1).bind(lambda x: Ok(x + 1)).unfold(ok=lambda x: x ** 2, err=lambda _: None)
         self.assertEqual(res, 16)
 
         res = Ok(1).map(lambda x: x + 1).bind(lambda x: Ok(x + 1)).get_or_else(100)
@@ -31,12 +31,12 @@ class TestResult(unittest.TestCase):
         self.assertIsInstance(res, Ok)
         self.assertEqual(res.get_or_else(100), 3)
 
-        res = of(2).bind(lambda _: Err(None)).map(lambda x: x + 1)
+        res = ok_of(2).bind(lambda _: Err(None)).map(lambda x: x + 1)
         self.assertIsInstance(res, Err)
         res = res.unfold(ok=lambda v: v, err=lambda e: e)
         self.assertTrue(res is None)
 
-        res = of(2).map_error(lambda e: [e]).unfold(ok=lambda v: v, err=lambda e: e)
+        res = ok_of(2).map_error(lambda e: [e]).unfold(ok=lambda v: v, err=lambda e: e)
         self.assertEqual(res, 2)
 
     def test_err_chains(self):

@@ -12,7 +12,8 @@ __all__ = [
     'Ok',
     'Err',
     'Result',
-    'of',
+    'ok_of',
+    'err_of',
     'from_try',
     'ap',
     'lift2',
@@ -104,9 +105,12 @@ class Err(Generic[E]):
 Result: TypeAlias = Union[Ok[T], Err[E]]
 
 
-def of(value: T) -> Ok[T]:
-    """Wraps a value in the container"""
+def ok_of(value: T) -> Ok[T]:
     return Ok(value)
+
+
+def err_of(error: E) -> Err[E]:
+    return Err(error)
 
 
 Args = ParamSpec('Args')

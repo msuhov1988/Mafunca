@@ -10,7 +10,8 @@ __all__ = [
     'Just',
     'Nothing',
     'Maybe',
-    'of',
+    'just_of',
+    'nothing_of',
     'from_null',
     'from_null_yield',
     'ap',
@@ -90,9 +91,12 @@ class Nothing:
 Maybe: TypeAlias = Union[Just[T], Nothing]
 
 
-def of(value: T) -> Just[T]:
-    """Wraps a value in the container"""
+def just_of(value: T) -> Just[T]:
     return Just(value)
+
+
+def nothing_of() -> Nothing:
+    return Nothing()
 
 
 Args = ParamSpec('Args')

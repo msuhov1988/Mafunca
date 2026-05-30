@@ -6,7 +6,7 @@ from mafunca.common.exceptions import ImpureMarkError, MonadError
 __all__ = ["impure", "is_impure"]
 
 
-_IMPURE_PROP = '__impure__'
+_IMPURE_PROP = '__mafunca_impure__'
 
 
 Args = ParamSpec('Args')

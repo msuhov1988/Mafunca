@@ -1,6 +1,6 @@
 import unittest
 
-from mafunca.maybe import Just, Nothing, of, from_null, from_null_yield, ap, lift, lift2, lift3
+from mafunca.maybe import Just, Nothing, just_of, from_null, from_null_yield, ap, lift, lift2, lift3
 from mafunca.specials import impure
 from mafunca.curry import curry
 from mafunca.common.exceptions import MonadError
@@ -12,7 +12,7 @@ class TestMaybe(unittest.TestCase):
         self.assertTrue(right.is_just)
         self.assertFalse(right.is_nothing)
 
-        from_unit = of(1)
+        from_unit = just_of(1)
         self.assertTrue(from_unit.is_just)
         self.assertFalse(from_unit.is_nothing)
 
@@ -21,7 +21,7 @@ class TestMaybe(unittest.TestCase):
         self.assertTrue(err.is_nothing)
 
     def test_just_chains(self):
-        res = of(2).map(lambda x: x + 1).bind(lambda x: Just(x + 1))
+        res = just_of(2).map(lambda x: x + 1).bind(lambda x: Just(x + 1))
         res = res.unfold(just=lambda x: x ** 2, nothing=lambda: None)
         self.assertEqual(res, 16)
 
@@ -32,7 +32,7 @@ class TestMaybe(unittest.TestCase):
         self.assertIsInstance(res, Just)
         self.assertEqual(res.get_or_else(100), 3)
 
-        res = of(2).bind(lambda _: Nothing()).map(lambda x: x + 1)
+        res = just_of(2).bind(lambda _: Nothing()).map(lambda x: x + 1)
         self.assertIsInstance(res, Nothing)
         res = res.unfold(just=lambda v: v, nothing=lambda: None)
         self.assertTrue(res is None)

@@ -3,7 +3,7 @@ from collections.abc import Callable
 from functools import wraps
 from typing import TypeVar, Generic, Union, ParamSpec, cast, Any
 
-from mafunca.maybe import Just, Nothing, Maybe, ap as maybe_ap
+from mafunca.maybe import Just, Nothing, Maybe
 from mafunca.result import Ok, Err, Result
 from mafunca.curry import curry, Curry
 from mafunca.common.exceptions import MonadError
@@ -25,6 +25,10 @@ T = TypeVar("T")
 E = TypeVar("E")
 NewE = TypeVar('NewE')
 R = TypeVar("R")
+
+
+# all methods are implemented without relying on the methods of underlying monads
+# so as not to duplicate panics on impure functions
 
 
 @dataclass(frozen=True, slots=True, repr=True)
@@ -74,7 +78,10 @@ class ResultMaybeT(Generic[T, E]):
         if isinstance(self.inner, Err):
             return cast(ResultMaybeT[R, E], self)
         maybe = self.inner.value
-        return ResultMaybeT(Ok(maybe.map(fn)))
+        if isinstance(maybe, Nothing):
+            return cast(ResultMaybeT[R, E], self)
+        value = fn(maybe.value)
+        return ResultMaybeT(Ok(Just(value)))
 
     def map_maybe(self, fn: Callable[[T], Maybe[R]]) -> 'ResultMaybeT[R, E]':
         """:raises MonadError: if the passed function is marked as impure"""
@@ -82,7 +89,9 @@ class ResultMaybeT(Generic[T, E]):
         if isinstance(self.inner, Err):
             return cast(ResultMaybeT[R, E], self)
         maybe = self.inner.value
-        return ResultMaybeT.wrap_maybe(maybe.bind(fn))
+        if isinstance(maybe, Nothing):
+            return cast(ResultMaybeT[R, E], self)
+        return ResultMaybeT.wrap_maybe(fn(maybe.value))
 
     def map_result(self, fn: Callable[[T], Result[R, E]]) -> 'ResultMaybeT[R, E]':
         """:raises MonadError: if the passed function is marked as impure"""
@@ -107,7 +116,10 @@ class ResultMaybeT(Generic[T, E]):
     def map_error(self, fn: Callable[[E], NewE]) -> 'ResultMaybeT[T, NewE]':
         """:raises MonadError: if the passed function is marked as impure"""
         _panic_on_impure(self.__class__.__name__, 'map_error', fn)
-        return ResultMaybeT(self.inner.map_error(fn))
+        if isinstance(self.inner, Ok):
+            return cast(ResultMaybeT[T, NewE], self)
+        error = self.inner.error
+        return ResultMaybeT(Err(fn(error)))
 
     def get_or_else(self, alter: T) -> T:
         inner = self.inner
@@ -172,7 +184,11 @@ def ap(fn: ResultMaybeT[Callable[[T], R], E], val: ResultMaybeT[T, E]) -> Result
     _panic_on_impure('result_transformer', 'ap', fn.inner.value.value)
     if isinstance(val.inner, Err):
         return cast(ResultMaybeT[R, E], val)
-    return ResultMaybeT.wrap_maybe(maybe_ap(fn.inner.value, val.inner.value))
+    if isinstance(val.inner.value, Nothing):
+        return cast(ResultMaybeT[R, E], val)
+    func = fn.inner.value.value
+    arg = val.inner.value.value
+    return ResultMaybeT.just(func(arg))
 
 
 def lift2(
