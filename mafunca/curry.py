@@ -1,14 +1,68 @@
 import inspect
 from collections.abc import Callable
+from functools import wraps
 from typing import TypeVar, Generic, Union
 
 from mafunca.common.exceptions import CurryBadArguments
-from mafunca.specials import is_impure
+from mafunca.specials import is_impure, impure
 from mafunca.specials import _get_impure_property  # noqa
 import mafunca.common._panics as panics # noqa
 
 
-__all__ = ['curry', 'Curry']
+__all__ = [
+    'curry2',
+    'curry3',
+    'curry4',
+    'curry',
+    'Curry'
+]
+
+
+_IMPURE_PROP = _get_impure_property()
+
+
+A = TypeVar("A")
+B = TypeVar("B")
+C = TypeVar("C")
+D = TypeVar("D")
+R = TypeVar("R")
+
+
+def _wrap_and_check_impure(wrapper, fn):
+    wrapper_new = wraps(fn)(wrapper)
+    if is_impure(fn):
+        wrapper_new = impure(wrapper_new)
+    return wrapper_new
+
+
+def curry2(fn: Callable[[A, B], R]) -> Callable[[A], Callable[[B], R]]:
+    def curry2_step1(arg1: A) -> Callable[[B], R]:
+        def curry2_final(arg2: B) -> R:
+            return fn(arg1, arg2)
+        return _wrap_and_check_impure(curry2_final, fn)
+    return curry2_step1
+
+
+def curry3(fn: Callable[[A, B, C], R]) -> Callable[[A], Callable[[B], Callable[[C], R]]]:
+    def curry_step1(arg1: A) -> Callable[[B], Callable[[C], R]]:
+        def curry3_step2(arg2: B) -> Callable[[C], R]:
+            def curry3_final(arg3: C) -> R:
+                return fn(arg1, arg2, arg3)
+            return _wrap_and_check_impure(curry3_final, fn)
+        return curry3_step2
+    return curry_step1
+
+
+def curry4(fn: Callable[[A, B, C, D], R]) -> Callable[[A], Callable[[B], Callable[[C], Callable[[D], R]]]]:
+    def curry4_step1(arg1: A) -> Callable[[B], Callable[[C], Callable[[D], R]]]:
+        def curry4_step2(arg2: B) -> Callable[[C], Callable[[D], R]]:
+            def curry4_step3(arg3: C) -> Callable[[D], R]:
+                def curry4_final(arg4: D) -> R:
+                    return fn(arg1, arg2, arg3, arg4)
+                return _wrap_and_check_impure(curry4_final, fn)
+            return curry4_step3
+        return curry4_step2
+    return curry4_step1
 
 
 def _in_place_endpoints_filter(sig: inspect.Signature, bound_args: inspect.BoundArguments) -> inspect.BoundArguments:
@@ -36,12 +90,6 @@ def _update_state(curry_obj: 'Curry', sig, pos, named) -> None:
     curry_obj._sig = sig  # noqa
     curry_obj._pos = pos  # noqa
     curry_obj._named = named  # noqa
-
-
-R = TypeVar("R")
-
-
-_IMPURE_PROP = _get_impure_property()
 
 
 class Curry(Generic[R]):

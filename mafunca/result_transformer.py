@@ -5,7 +5,7 @@ from typing import TypeVar, Generic, Union, ParamSpec, cast, Any
 
 from mafunca.maybe import Just, Nothing, Maybe
 from mafunca.result import Ok, Err, Result
-from mafunca.curry import curry, Curry
+from mafunca.curry import curry2, curry3, curry4, curry, Curry
 from mafunca.common.exceptions import MonadError
 from mafunca.specials import _panic_on_impure  # noqa
 
@@ -17,6 +17,7 @@ __all__ = [
     'ap',
     'lift2',
     'lift3',
+    'lift4',
     'lift',
 ]
 
@@ -139,6 +140,7 @@ Args = ParamSpec('Args')
 A1 = TypeVar("A1")
 A2 = TypeVar("A2")
 A3 = TypeVar("A3")
+A4 = TypeVar("A4")
 
 
 def from_null(
@@ -200,10 +202,7 @@ def lift2(
         Wraps the passed function in the container and applies the applicative method
         :raises MonadError: from the underlying function/method if passed function is marked as impure
     """
-    return ap(
-        ap(ResultMaybeT.just(lambda a: lambda b: fn(a, b)), arg1),
-        arg2
-    )
+    return ap(ap(ResultMaybeT.just(curry2(fn)), arg1), arg2)
 
 
 def lift3(
@@ -216,13 +215,21 @@ def lift3(
         Wraps the passed function in the container and applies the applicative method
         :raises MonadError: from the underlying function/method if passed function is marked as impure
     """
-    return ap(
-        ap(
-            ap(ResultMaybeT.just(lambda a: lambda b: lambda c: fn(a, b, c)), arg1),
-            arg2
-        ),
-        arg3
-    )
+    return ap(ap(ap(ResultMaybeT.just(curry3(fn)), arg1), arg2), arg3)
+
+
+def lift4(
+        fn: Callable[[A1, A2, A3, A4], R],
+        arg1: ResultMaybeT[A1, E],
+        arg2: ResultMaybeT[A2, E],
+        arg3: ResultMaybeT[A3, E],
+        arg4: ResultMaybeT[A4, E],
+) -> ResultMaybeT[R, E]:
+    """
+        Wraps the passed function in the container and applies the applicative method
+        :raises MonadError: from the underlying function/method if passed function is marked as impure
+    """
+    return ap(ap(ap(ap(ResultMaybeT.just(curry4(fn)), arg1), arg2), arg3), arg4)
 
 
 def lift(fn: Callable[..., R], *args: ResultMaybeT[Any, E]) -> ResultMaybeT[Union[Curry[R], R], E]:

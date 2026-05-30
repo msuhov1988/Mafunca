@@ -1,6 +1,6 @@
 import unittest
 
-from mafunca.maybe import Just, Nothing, just_of, from_null, from_null_yield, ap, lift, lift2, lift3
+from mafunca.maybe import Just, Nothing, just_of, from_null, from_null_yield, ap, lift, lift2, lift3, lift4
 from mafunca.specials import impure
 from mafunca.curry import curry
 from mafunca.common.exceptions import MonadError
@@ -111,6 +111,22 @@ class TestMaybe(unittest.TestCase):
         self.assertEqual(res.get_or_else(100), 100)
         res = lift3(three, Just(1), Nothing(), Just(3)).get_or_else(0)
         self.assertEqual(res, 0)
+
+    def test_lift4(self):
+        def four(a, b, c, d):
+            return [a, b, c, d]
+
+        res = lift4(four, Just(1), Just(2), Just(3), Just(4)).get_or_else([])
+        self.assertEqual(res, [1, 2, 3, 4])
+        res = lift4(four, Just(1), Nothing(), Just(3), Just(4))
+        self.assertTrue(res.is_nothing)
+        self.assertEqual(res.get_or_else(100), 100)
+        res = lift4(four, Just(1), Nothing(), Just(3), Just(4)).get_or_else(0)
+        self.assertEqual(res, 0)
+
+        four = impure(four)
+        with self.assertRaises(MonadError):
+            lift4(four, Just(1), Just(2), Just(3), Just(4))
 
     def test_lift(self):
         def many(a, b, c, d, e):

@@ -26,7 +26,7 @@ def impure(fn: Callable[Args, R]) -> Callable[Args, R]:
     return fn
 
 
-def is_impure(fn: Callable) -> bool:
+def is_impure(fn) -> bool:
     """Checking that the function was marked as impure"""
     return bool(getattr(fn, _IMPURE_PROP, False))
 

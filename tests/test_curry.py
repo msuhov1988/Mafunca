@@ -3,11 +3,64 @@ from inspect import iscoroutine
 import asyncio
 
 from mafunca.common.exceptions import CurryBadArguments
-from mafunca.curry import curry
+from mafunca.curry import curry2, curry3, curry4, curry
 from mafunca.specials import impure, is_impure
 
 
 class TestCurry(unittest.TestCase):
+
+    def test_curry2(self):
+        @curry2
+        def test(a: int, b: int) -> int:
+            return a + b
+
+        self.assertTrue(callable(test(1)))
+        self.assertEqual(test(1)(2), 3)
+        self.assertFalse(is_impure(test(1)))
+
+        @curry2
+        @impure
+        def test_impure(a: int, b: int) -> int:
+            return a + b
+
+        self.assertFalse(is_impure(test_impure))
+        self.assertTrue(is_impure(test_impure(1)))
+
+    def test_curry3(self):
+        def test(a: int, b: int, c: int) -> int:
+            return a + b + c
+
+        test_result = curry3(test)
+
+        self.assertTrue(callable(test_result(1)))
+        self.assertTrue(callable(test_result(1)(2)))
+        self.assertEqual(test_result(1)(2)(3), 6)
+        self.assertFalse(is_impure(test_result(1)(2)))
+
+        test_impure = curry3(impure(test))
+
+        self.assertFalse(is_impure(test_impure))
+        self.assertFalse(is_impure(test_impure(1)))
+        self.assertTrue(is_impure(test_impure(1)(2)))
+
+    def test_curry4(self):
+        def test(a: int, b: int, c: int, d: int) -> int:
+            return a + b + c + d
+
+        test_result = curry4(test)
+
+        self.assertTrue(callable(test_result(1)))
+        self.assertTrue(callable(test_result(1)(2)))
+        self.assertTrue(callable(test_result(1)(2)(3)))
+        self.assertEqual(test_result(1)(2)(3)(4), 10)
+        self.assertFalse(is_impure(test_result(1)(2)(3)))
+
+        test_impure = curry4(impure(test))
+
+        self.assertFalse(is_impure(test_impure))
+        self.assertFalse(is_impure(test_impure(1)))
+        self.assertFalse(is_impure(test_impure(1)(2)))
+        self.assertTrue(is_impure(test_impure(1)(2)(3)))
 
     def test_curry_basic(self):
         @curry

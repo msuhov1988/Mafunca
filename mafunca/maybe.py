@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from collections.abc import Callable, Iterable, Iterator
 from typing import TypeVar, TypeAlias, Generic, Union, ParamSpec, Never, Any
 
-from mafunca.curry import curry, Curry
+from mafunca.curry import curry2, curry3, curry4, curry, Curry
 from mafunca.specials import _panic_on_impure  # noqa
 
 
@@ -17,6 +17,7 @@ __all__ = [
     'ap',
     'lift2',
     'lift3',
+    'lift4',
     'lift',
 ]
 
@@ -103,6 +104,7 @@ Args = ParamSpec('Args')
 A1 = TypeVar("A1")
 A2 = TypeVar("A2")
 A3 = TypeVar("A3")
+A4 = TypeVar("A4")
 
 
 def from_null(
@@ -147,10 +149,7 @@ def lift2(
         Wraps the passed function in the Maybe and applies the applicative method
         :raises MonadError: from the underlying function/method if passed function is marked as impure
     """
-    return ap(
-        ap(Just(lambda a: lambda b: fn(a, b)), arg1),
-        arg2
-    )
+    return ap(ap(Just(curry2(fn)), arg1), arg2)
 
 
 def lift3(
@@ -163,13 +162,21 @@ def lift3(
         Wraps the passed function in the Maybe and applies the applicative method
         :raises MonadError: from the underlying function/method if passed function is marked as impure
     """
-    return ap(
-        ap(
-            ap(Just(lambda a: lambda b: lambda c: fn(a, b, c)), arg1),
-            arg2
-        ),
-        arg3
-    )
+    return ap(ap(ap(Just(curry3(fn)), arg1), arg2), arg3)
+
+
+def lift4(
+        fn: Callable[[A1, A2, A3, A4], R],
+        arg1: Maybe[A1],
+        arg2: Maybe[A2],
+        arg3: Maybe[A3],
+        arg4: Maybe[A4],
+) -> Maybe[R]:
+    """
+        Wraps the passed function in the Maybe and applies the applicative method
+        :raises MonadError: from the underlying function/method if passed function is marked as impure
+    """
+    return ap(ap(ap(ap(Just(curry4(fn)), arg1), arg2), arg3), arg4)
 
 
 def lift(fn: Callable[..., R], *args: Maybe[Any]) -> Maybe[Union[Curry[R], R]]:

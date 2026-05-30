@@ -3,7 +3,7 @@ from collections.abc import Callable
 from functools import wraps
 from typing import TypeVar, TypeAlias, Generic, Union, ParamSpec, Never, Any
 
-from mafunca.curry import curry, Curry
+from mafunca.curry import curry2, curry3, curry4, curry, Curry
 from mafunca.common.exceptions import MonadError
 from mafunca.specials import _panic_on_impure  # noqa
 
@@ -18,6 +18,7 @@ __all__ = [
     'ap',
     'lift2',
     'lift3',
+    'lift4',
     'lift',
 ]
 
@@ -117,6 +118,7 @@ Args = ParamSpec('Args')
 A1 = TypeVar("A1")
 A2 = TypeVar("A2")
 A3 = TypeVar("A3")
+A4 = TypeVar("A4")
 
 
 def from_try(fn: Callable[Args, R]) -> Callable[Args, Result[R, Exception]]:
@@ -160,10 +162,7 @@ def lift2(
         Wraps the passed function in the Result and applies the applicative method
         :raises MonadError: from the underlying function/method if passed function is marked as impure
     """
-    return ap(
-        ap(Ok(lambda a: lambda b: fn(a, b)), arg1),
-        arg2
-    )
+    return ap(ap(Ok(curry2(fn)), arg1), arg2)
 
 
 def lift3(
@@ -176,13 +175,21 @@ def lift3(
         Wraps the passed function in the Result and applies the applicative method
         :raises MonadError: from the underlying function/method if passed function is marked as impure
     """
-    return ap(
-        ap(
-            ap(Ok(lambda a: lambda b: lambda c: fn(a, b, c)), arg1),
-            arg2
-        ),
-        arg3
-    )
+    return ap(ap(ap(Ok(curry3(fn)), arg1), arg2), arg3)
+
+
+def lift4(
+        fn: Callable[[A1, A2, A3, A4], R],
+        arg1: Result[A1, E],
+        arg2: Result[A2, E],
+        arg3: Result[A3, E],
+        arg4: Result[A4, E],
+) -> Result[R, E]:
+    """
+        Wraps the passed function in the Maybe and applies the applicative method
+        :raises MonadError: from the underlying function/method if passed function is marked as impure
+    """
+    return ap(ap(ap(ap(Ok(curry4(fn)), arg1), arg2), arg3), arg4)
 
 
 def lift(fn: Callable[..., R], *args: Result[Any, E]) -> Result[Union[Curry[R], R], E]:

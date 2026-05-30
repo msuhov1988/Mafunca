@@ -2,7 +2,7 @@ import unittest
 
 from mafunca.result import Ok, Err
 from mafunca.maybe import Just, Nothing
-from mafunca.maybe_transformer import MaybeResultT, from_null, from_try, ap, lift2, lift3, lift
+from mafunca.maybe_transformer import MaybeResultT, from_null, from_try, ap, lift2, lift3, lift4, lift
 from mafunca.specials import impure
 from mafunca.curry import curry
 from mafunca.common.exceptions import MonadError
@@ -277,6 +277,35 @@ class TestMaybeResultT(unittest.TestCase):
         res = lift3(three, MaybeResultT.ok(3), MaybeResultT.error(2), MaybeResultT.nothing())
         self.assertTrue(res.is_error)
         self.assertEqual(res.inner.value.error, 2)
+
+    def test_lift4(self):
+        def four(a, b, c, d):
+            return [a, b, c, d]
+
+        ok = MaybeResultT.ok
+        error = MaybeResultT.error
+        nothing = MaybeResultT.nothing
+
+        res = lift4(four, ok(1), ok(2), ok(3), ok(4)).get_or_else([0])
+        self.assertEqual(res, [1, 2, 3, 4])
+
+        res = lift4(four, ok(1), error(2), error(3), ok(4))
+        self.assertTrue(res.is_error)
+        self.assertEqual(res.inner.value.error, 2)
+
+        res = lift4(four, ok(1), nothing(), ok(3), ok(4))
+        self.assertTrue(res.is_nothing)
+
+        res = lift4(four, nothing(), error(2), ok(3), ok(4))
+        self.assertTrue(res.is_nothing)
+
+        res = lift4(four, ok(3), error(2), nothing(), ok(4))
+        self.assertTrue(res.is_error)
+        self.assertEqual(res.inner.value.error, 2)
+
+        four = impure(four)
+        with self.assertRaises(MonadError):
+            lift4(four, ok(1), ok(2), ok(3), ok(4))
 
     def test_lift(self):
         def many(a, b, c, d, e):
