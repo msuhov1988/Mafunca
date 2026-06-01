@@ -153,15 +153,13 @@ class TestResult(unittest.TestCase):
             return [a, b, c, d, e]
 
         res = lift(many, Ok(1), Ok(2), Ok(3))
-        self.assertTrue(callable(res.value))
-        self.assertIs(res.value.origin, many)
-        res = lift(res.value, Ok(4))
-        self.assertTrue(callable(res.value))
-        self.assertIs(res.value.origin, many)
-        res = lift(res.value, Ok(5)).get_or_else(0)
+        res = ap(res, Ok(4))
+        res = ap(res, Ok(5)).get_or_else([])
         self.assertEqual(res, [1, 2, 3, 4, 5])
 
-        res = lift(many, Err(1))
+        res = lift(many, Err(1), Ok(2), Ok(3))
+        res = ap(res, Ok(4))
+        res = ap(res, Ok(5))
         self.assertTrue(res.is_error)
 
     def test_curry_impurity(self):

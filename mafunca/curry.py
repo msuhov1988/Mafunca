@@ -1,12 +1,10 @@
 import inspect
 from collections.abc import Callable
 from functools import wraps
-from typing import TypeVar, Generic, Union
+from typing import TypeVar, Union
 
-from mafunca.common.exceptions import CurryBadArguments
+from mafunca.common.exceptions import CurryBadFunctionError, CurryBadArguments
 from mafunca.specials import is_impure, impure
-from mafunca.specials import _get_impure_property  # noqa
-import mafunca.common._panics as panics # noqa
 
 
 __all__ = [
@@ -14,11 +12,7 @@ __all__ = [
     'curry3',
     'curry4',
     'curry',
-    'Curry'
 ]
-
-
-_IMPURE_PROP = _get_impure_property()
 
 
 A = TypeVar("A")
@@ -36,6 +30,11 @@ def _wrap_and_check_impure(wrapper, fn):
 
 
 def curry2(fn: Callable[[A, B], R]) -> Callable[[A], Callable[[B], R]]:
+    """
+        Currying decorator for a function with two POSITIONAL arguments.
+        If the original function is marked as impure,
+        this property is only transferred to the last step before the actual call
+    """
     def curry2_step1(arg1: A) -> Callable[[B], R]:
         def curry2_final(arg2: B) -> R:
             return fn(arg1, arg2)
@@ -44,6 +43,11 @@ def curry2(fn: Callable[[A, B], R]) -> Callable[[A], Callable[[B], R]]:
 
 
 def curry3(fn: Callable[[A, B, C], R]) -> Callable[[A], Callable[[B], Callable[[C], R]]]:
+    """
+        Currying decorator for a function with three POSITIONAL arguments.
+        If the original function is marked as impure,
+        this property is only transferred to the last step before the actual call
+    """
     def curry_step1(arg1: A) -> Callable[[B], Callable[[C], R]]:
         def curry3_step2(arg2: B) -> Callable[[C], R]:
             def curry3_final(arg3: C) -> R:
@@ -54,6 +58,11 @@ def curry3(fn: Callable[[A, B, C], R]) -> Callable[[A], Callable[[B], Callable[[
 
 
 def curry4(fn: Callable[[A, B, C, D], R]) -> Callable[[A], Callable[[B], Callable[[C], Callable[[D], R]]]]:
+    """
+        Currying decorator for a function with four POSITIONAL arguments.
+        If the original function is marked as impure,
+        this property is only transferred to the last step before the actual call
+    """
     def curry4_step1(arg1: A) -> Callable[[B], Callable[[C], Callable[[D], R]]]:
         def curry4_step2(arg2: B) -> Callable[[C], Callable[[D], R]]:
             def curry4_step3(arg3: C) -> Callable[[D], R]:
@@ -65,12 +74,21 @@ def curry4(fn: Callable[[A, B, C, D], R]) -> Callable[[A], Callable[[B], Callabl
     return curry4_step1
 
 
-def _in_place_endpoints_filter(sig: inspect.Signature, bound_args: inspect.BoundArguments) -> inspect.BoundArguments:
-    """Cleaning arguments of the *args and **kwargs type - they should not have default values applied to them"""
-    for name, par in sig.parameters.items():
-        if par.kind == inspect.Parameter.VAR_KEYWORD or par.kind == inspect.Parameter.VAR_POSITIONAL:
-            bound_args.arguments.pop(name, None)
-    return bound_args
+def _extract_name(func) -> str:
+    return getattr(func, "__qualname__", getattr(func, "__name__", f"{func}"))
+
+
+def _panic_on_bad_curried(func):
+    """
+       Panic on improper entity for currying.
+       :raises CurryBadFunctionError:
+    """
+    if not inspect.isfunction(func):
+        raise CurryBadFunctionError(func_name=_extract_name(func), err="must be a callable")
+    if inspect.isbuiltin(func):
+        raise CurryBadFunctionError(func_name=_extract_name(func), err="should not be a built-in function")
+    if inspect.ismethod(func):
+        raise CurryBadFunctionError(func_name=_extract_name(func), err="should not be a bound method")
 
 
 def _apply(sig: inspect.Signature, *args, **kwargs) -> inspect.BoundArguments:
@@ -81,78 +99,41 @@ def _apply(sig: inspect.Signature, *args, **kwargs) -> inspect.BoundArguments:
     bound_args = sig.bind_partial(*args, **kwargs)
     if len(args) == 0 and len(kwargs) == 0:
         bound_args.apply_defaults()
-        _in_place_endpoints_filter(sig=sig, bound_args=bound_args)
+        for name, par in sig.parameters.items():
+            if par.kind == inspect.Parameter.VAR_KEYWORD or par.kind == inspect.Parameter.VAR_POSITIONAL:
+                bound_args.arguments.pop(name, None)
     return bound_args
 
 
-def _update_state(curry_obj: 'Curry', sig, pos, named) -> None:
-    """Inner and dirty - update part of inner object state"""
-    curry_obj._sig = sig  # noqa
-    curry_obj._pos = pos  # noqa
-    curry_obj._named = named  # noqa
-
-
-class Curry(Generic[R]):
-    __slots__ = ('_func', '_sig', '_pos', '_named', f'{_IMPURE_PROP}')
-
-    def __init__(self, fn: Callable[..., R]):
-        """:raises CurryBadFunctionError: passed function is not suitable"""
-        panics.on_bad_curried(func=fn)
-        self._func = fn
-        self._sig = inspect.signature(fn)
-        self._pos = []
-        self._named = {}
-        setattr(self, _IMPURE_PROP, is_impure(fn))
-
-    @property
-    def origin(self) -> Callable[..., R]:
-        return self._func
-
-    def __call__(self, *args, **kwargs) -> Union['Curry[R]', R]:
-        """:raises CurryBadArguments: error at the level of the arguments being passed"""
+def _curry_step(fn, signature, positioned_args, named_args) -> Callable[..., Union[Callable, R]]:
+    def _curry_step_inner(*args, **kwargs) -> Union[Callable, R]:
         try:
-            bound_args = _apply(self._sig, *args, **kwargs)
-            new_params = [par for name, par in self._sig.parameters.items() if name not in bound_args.arguments]
+            bound_args = _apply(signature, *args, **kwargs)
+            new_params = [par for name, par in signature.parameters.items() if name not in bound_args.arguments]
             if len(new_params) == 0:
-                return self._func(*self._pos, *bound_args.args, **self._named, **bound_args.kwargs)
+                return fn(*positioned_args, *bound_args.args, **named_args, **bound_args.kwargs)
 
-            sig = inspect.Signature(parameters=new_params)
-            new_curry = Curry(self._func)
-            _update_state(
-                new_curry,
-                sig,
-                [*self._pos, *bound_args.args],
-                {**self._named, **bound_args.kwargs}
-            )
-            return new_curry
+            new_sig = inspect.Signature(parameters=new_params)
+            new_pos = [*positioned_args, *bound_args.args]
+            new_named = {**named_args, **bound_args.kwargs}
+            return _curry_step(fn, new_sig, new_pos, new_named)
         except TypeError as err:
-            raise CurryBadArguments(func_name=panics.extract_name(self._func), err=err.args[0]) from None
+            raise CurryBadArguments(func_name=_extract_name(fn), err=err.args[0]) from None
 
-    def run_for_var(self) -> R:
-        """
-           Runs a function whose signature contains variable arguments without waiting for them to be passed.
-           :raises CurryBadArguments: if not only variable arguments are left unset.
-        """
-        try:
-            return self._func(*self._pos, **self._named)
-        except TypeError as err:
-            raise CurryBadArguments(func_name=panics.extract_name(self._func), err=err.args[0]) from None
-
-    def __repr__(self):
-        cls = type(self)
-        name = cls.__qualname__
-        module = cls.__module__
-        args = [repr(self._func)]
-        args.extend(repr(x) for x in self._pos)
-        args.extend(f"{k}={v!r}" for (k, v) in self._named.items())
-        return f"{module}.{name}({', '.join(args)}){self._sig}"
+    return _wrap_and_check_impure(_curry_step_inner, fn)
 
 
-def curry(fn: Callable[..., R]) -> Curry[R]:
+def curry(fn: Callable[..., R]) -> Callable[..., Union[Callable, R]]:
     """
-       Decorator that turns a function into a curried version.
-       :raises CurryBadFunctionError: passed function is not suitable
-       :raises CurryBadArguments: error at the level of the arguments being passed
+        Currying decorator for a function with an arbitrary signature.
+        Since any number of arguments can be passed at each step,
+        the impure marking of the original function is set immediately.
+        :raises CurryBadFunctionError: passed function is not suitable
+        :raises CurryBadArguments: error at the level of the arguments being passed
     """
-    curried = Curry(fn)
-    return curried
+    _panic_on_bad_curried(func=fn)
+
+    def curried(*args, **kwargs) -> Union[Callable, R]:
+        return _curry_step(fn, inspect.signature(fn), list(), dict())(*args, **kwargs)
+
+    return _wrap_and_check_impure(curried, fn)

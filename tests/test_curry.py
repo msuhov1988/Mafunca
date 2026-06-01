@@ -84,8 +84,19 @@ class TestCurry(unittest.TestCase):
         self.assertTrue(callable(for_curry))
         res = res(another=10)
         self.assertEqual(res, [1, 2, (0, 0), {'another': 10}])
-        res = for_curry(b=2)(a=1)
-        self.assertEqual(res.run_for_var(), [1, 2, (), {}])
+
+    def test_curry_repeatable_currying(self):
+        @curry
+        @curry
+        def for_curry(a: int, b: int, *args, **kwargs) -> list:
+            return [a, b, args, kwargs]
+
+        res = for_curry(1, b=2)
+        self.assertTrue(callable(for_curry))
+        res = res(0, 0)
+        self.assertTrue(callable(for_curry))
+        res = res(another=10)
+        self.assertEqual(res, [1, 2, (0, 0), {'another': 10}])
 
     def test_curry_signature_preserved(self):
         @curry

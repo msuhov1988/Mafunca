@@ -146,15 +146,13 @@ class TestMaybe(unittest.TestCase):
             return [a, b, c, d, e]
 
         res = lift(many, Just(1), Just(2), Just(3))
-        self.assertTrue(callable(res.value))
-        self.assertIs(res.value.origin, many)
-        res = lift(res.value, Just(4))
-        self.assertTrue(callable(res.value))
-        self.assertIs(res.value.origin, many)
-        res = lift(res.value, Just(5)).get_or_else(0)
+        res = ap(res, Just(4))
+        res = ap(res, Just(5)).get_or_else([])
         self.assertEqual(res, [1, 2, 3, 4, 5])
 
-        res = lift(many, Nothing())
+        res = lift(many, Nothing(), Just(2), Just(3))
+        res = ap(res, Just(4))
+        res = ap(res, Just(5))
         self.assertTrue(res.is_nothing)
 
     def test_curry_impurity(self):

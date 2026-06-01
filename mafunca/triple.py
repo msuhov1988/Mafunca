@@ -4,7 +4,6 @@ from collections.abc import Callable
 from functools import wraps
 
 from mafunca.common.exceptions import ImpureMarkError, MonadError
-from mafunca.curry import Curry
 import mafunca.common._panics as panics # noqa
 
 
@@ -185,7 +184,7 @@ class Right(Triple[_Ok, Never], Generic[_Ok]):
         return right(self._value)
 
     def ap(
-        self: Union['Right[Callable[[_T1], _T2]]', Curry[_T2]],
+        self: Union['Right[Callable[[_T1], _T2]]', Callable],
         wrapped_val: Triple[_T1, _NewBad]
     ) -> Triple[_T2, _NewBad]:
         """

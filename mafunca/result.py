@@ -3,7 +3,7 @@ from collections.abc import Callable
 from functools import wraps
 from typing import TypeVar, TypeAlias, Generic, Union, ParamSpec, Never, Any
 
-from mafunca.curry import curry2, curry3, curry4, curry, Curry
+from mafunca.curry import curry2, curry3, curry4, curry
 from mafunca.common.exceptions import MonadError
 from mafunca.specials import _panic_on_impure  # noqa
 
@@ -159,6 +159,7 @@ def lift2(
         arg2: Result[A2, E]
 ) -> Result[R, E]:
     """
+        For a function with two POSITIONAL arguments.
         Wraps the passed function in the Result and applies the applicative method
         :raises MonadError: from the underlying function/method if passed function is marked as impure
     """
@@ -172,6 +173,7 @@ def lift3(
         arg3: Result[A3, E]
 ) -> Result[R, E]:
     """
+        For a function with three POSITIONAL arguments.
         Wraps the passed function in the Result and applies the applicative method
         :raises MonadError: from the underlying function/method if passed function is marked as impure
     """
@@ -186,20 +188,25 @@ def lift4(
         arg4: Result[A4, E],
 ) -> Result[R, E]:
     """
+        For a function with four POSITIONAL arguments.
         Wraps the passed function in the Maybe and applies the applicative method
         :raises MonadError: from the underlying function/method if passed function is marked as impure
     """
     return ap(ap(ap(ap(Ok(curry4(fn)), arg1), arg2), arg3), arg4)
 
 
-def lift(fn: Callable[..., R], *args: Result[Any, E]) -> Result[Union[Curry[R], R], E]:
+def lift(fn: Callable[..., R], *args: Result[Any, E]) -> Result[Union[Callable, R], E]:
     """
+       For a function with an arbitrary number of POSITIONAL arguments.
        Wraps the passed function in the Result and applies the applicative method.
-       If fewer arguments are passed than the function requires, it returns a curried version in the Result container
-       that waits for the remaining arguments.
+
+       ATTENTION. When an incomplete number of arguments is passed,
+       a curried version with partially applied arguments will be returned.
+       However, since each call curries the passed function,
+       the partially applied arguments from the previous step are not preserved.
        :raises MonadError: from the underlying function/method if passed function is marked as impure
     """
-    result = Ok(curry(fn) if not isinstance(fn, Curry) else fn)
+    result = Ok(curry(fn))
     for arg in args:
         result = ap(result, arg)
     return result

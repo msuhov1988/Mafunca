@@ -341,19 +341,13 @@ class TestResultMaybeT(unittest.TestCase):
         err = ResultMaybeT.error
 
         res = lift(many, just(1), just(2), just(3))
-        curried = res.get_or_else([])
-        self.assertTrue(callable(curried))
-        self.assertIs(curried.origin, many)
-
-        res = lift(curried, just(4))
-        curried = res.get_or_else([])
-        self.assertTrue(callable(curried))
-        self.assertIs(curried.origin, many)
-
-        res = lift(curried, just(5)).get_or_else(0)
+        res = ap(res, just(4))
+        res = ap(res, just(5)).get_or_else([])
         self.assertEqual(res, [1, 2, 3, 4, 5])
 
-        res = lift(many, err(1))
+        res = lift(many, err(None), just(2), just(3))
+        res = ap(res, just(4))
+        res = ap(res, just(5))
         self.assertTrue(res.is_error)
 
     def test_curry_impurity(self):
