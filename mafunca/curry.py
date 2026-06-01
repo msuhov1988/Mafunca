@@ -83,8 +83,8 @@ def _panic_on_bad_curried(func):
        Panic on improper entity for currying.
        :raises CurryBadFunctionError:
     """
-    if not inspect.isfunction(func):
-        raise CurryBadFunctionError(func_name=_extract_name(func), err="must be a callable")
+    if not callable(func):
+        raise CurryBadFunctionError(func_name=_extract_name(func), err="must be a callable object")
     if inspect.isbuiltin(func):
         raise CurryBadFunctionError(func_name=_extract_name(func), err="should not be a built-in function")
     if inspect.ismethod(func):

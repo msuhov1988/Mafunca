@@ -5,7 +5,7 @@ from typing import TypeVar, TypeAlias, Generic, Union, ParamSpec, Never, Any
 
 from mafunca.curry import curry2, curry3, curry4, curry
 from mafunca.common.exceptions import MonadError
-from mafunca.specials import _panic_on_impure  # noqa
+from mafunca.specials import panic_on_impure
 
 
 __all__ = [
@@ -44,17 +44,17 @@ class Ok(Generic[T]):
 
     def map(self, fn: Callable[[T], R]) -> 'Ok[R]':
         """:raises MonadError: if the passed function is marked as impure"""
-        _panic_on_impure(self.__class__.__name__, 'map', fn)
+        panic_on_impure(self.__class__.__name__, 'map', fn)
         return Ok(fn(self.value))
 
     def bind(self, fn: Callable[[T], 'Result[R, E]']) -> 'Result[R, E]':
         """:raises MonadError: if the passed function is marked as impure"""
-        _panic_on_impure(self.__class__.__name__, 'bind', fn)
+        panic_on_impure(self.__class__.__name__, 'bind', fn)
         return fn(self.value)
 
     def map_error(self, fn: Callable[[Never], NewE]) -> 'Ok[T]':
         """:raises MonadError: if the passed function is marked as impure"""
-        _panic_on_impure(self.__class__.__name__, 'map_error', fn)
+        panic_on_impure(self.__class__.__name__, 'map_error', fn)
         return self
 
     def get_or_else(self, alter: T) -> T:  # noqa
@@ -62,7 +62,7 @@ class Ok(Generic[T]):
 
     def unfold(self, *, ok: Callable[[T], R], err: Callable[[Never], R]) -> R:
         """:raises MonadError: if the passed functions are marked as impure"""
-        _panic_on_impure(self.__class__.__name__, 'unfold', ok, err)
+        panic_on_impure(self.__class__.__name__, 'unfold', ok, err)
         return ok(self.value)
 
 
@@ -81,17 +81,17 @@ class Err(Generic[E]):
 
     def map(self, fn: Callable[[Never], R]) -> 'Err[E]':
         """:raises MonadError: if the passed function is marked as impure"""
-        _panic_on_impure(self.__class__.__name__, 'map', fn)
+        panic_on_impure(self.__class__.__name__, 'map', fn)
         return self
 
     def bind(self, fn: Callable[[Never], 'Result[R, E]']) -> 'Err[E]':
         """:raises MonadError: if the passed function is marked as impure"""
-        _panic_on_impure(self.__class__.__name__, 'bind', fn)
+        panic_on_impure(self.__class__.__name__, 'bind', fn)
         return self
 
     def map_error(self, fn: Callable[[E], NewE]) -> 'Err[NewE]':
         """:raises MonadError: if the passed function is marked as impure"""
-        _panic_on_impure(self.__class__.__name__, 'map_error', fn)
+        panic_on_impure(self.__class__.__name__, 'map_error', fn)
         return Err(fn(self.error))
 
     def get_or_else(self, alter: T) -> T:  # noqa
@@ -99,7 +99,7 @@ class Err(Generic[E]):
 
     def unfold(self, *, ok: Callable[[Never], R], err: Callable[[E], R]) -> R:
         """:raises MonadError: if the passed functions are marked as impure"""
-        _panic_on_impure(self.__class__.__name__, 'unfold', ok, err)
+        panic_on_impure(self.__class__.__name__, 'unfold', ok, err)
         return err(self.error)
 
 
@@ -127,7 +127,7 @@ def from_try(fn: Callable[Args, R]) -> Callable[Args, Result[R, Exception]]:
         'MonadError' is not suppressed.
         :raises MonadError: if the passed function is marked as impure
     """
-    _panic_on_impure('result module', 'from_try', fn)
+    panic_on_impure('result module', 'from_try', fn)
 
     def from_try_inner(*args: Args.args, **kwargs: Args.kwargs) -> Result[R, Exception]:
         try:
@@ -147,7 +147,7 @@ def ap(fn: Result[Callable[[T], R], E], val: Result[T, E]) -> Result[R, E]:
     """
     if isinstance(fn, Err):
         return fn
-    _panic_on_impure('result module', 'ap', fn.value)
+    panic_on_impure('result module', 'ap', fn.value)
     if isinstance(val, Err):
         return val
     return Ok(fn.value(val.value))
@@ -189,7 +189,7 @@ def lift4(
 ) -> Result[R, E]:
     """
         For a function with four POSITIONAL arguments.
-        Wraps the passed function in the Maybe and applies the applicative method
+        Wraps the passed function in the Result and applies the applicative method
         :raises MonadError: from the underlying function/method if passed function is marked as impure
     """
     return ap(ap(ap(ap(Ok(curry4(fn)), arg1), arg2), arg3), arg4)

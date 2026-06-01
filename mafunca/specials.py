@@ -3,7 +3,7 @@ from typing import TypeVar, ParamSpec
 from mafunca.common.exceptions import ImpureMarkError, MonadError
 
 
-__all__ = ["impure", "is_impure"]
+__all__ = ["impure", "is_impure", "panic_on_impure"]
 
 
 _IMPURE_PROP = '__mafunca_impure__'
@@ -31,8 +31,8 @@ def is_impure(fn) -> bool:
     return bool(getattr(fn, _IMPURE_PROP, False))
 
 
-def _panic_on_impure(monad: str, method: str, *funcs: Callable) -> None:
-    """:raises MonadError: if function is impure"""
+def panic_on_impure(monad: str, method: str, *funcs: Callable) -> None:
+    """:raises MonadError: if function was marked as impure"""
     for fn in funcs:
         if is_impure(fn):
             raise MonadError(monad, method, f"impure function '{fn}' can not be used")

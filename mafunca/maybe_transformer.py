@@ -7,7 +7,7 @@ from mafunca.maybe import Just, Nothing, Maybe
 from mafunca.result import Ok, Err, Result
 from mafunca.curry import curry2, curry3, curry4, curry
 from mafunca.common.exceptions import MonadError
-from mafunca.specials import _panic_on_impure  # noqa
+from mafunca.specials import panic_on_impure
 
 
 __all__ = [
@@ -75,7 +75,7 @@ class MaybeResultT(Generic[T, E]):
 
     def map(self, fn: Callable[[T], R]) -> 'MaybeResultT[R, E]':
         """:raises MonadError: if the passed function is marked as impure"""
-        _panic_on_impure(self.__class__.__name__, 'map', fn)
+        panic_on_impure(self.__class__.__name__, 'map', fn)
         if isinstance(self.inner, Nothing):
             return cast(MaybeResultT[R, E], self)
         result = self.inner.value
@@ -86,7 +86,7 @@ class MaybeResultT(Generic[T, E]):
 
     def map_maybe(self, fn: Callable[[T], Maybe[R]]) -> 'MaybeResultT[R, E]':
         """:raises MonadError: if the passed function is marked as impure"""
-        _panic_on_impure(self.__class__.__name__, 'map_maybe', fn)
+        panic_on_impure(self.__class__.__name__, 'map_maybe', fn)
         if isinstance(self.inner, Nothing):
             return cast(MaybeResultT[R, E], self)
         result = self.inner.value
@@ -96,7 +96,7 @@ class MaybeResultT(Generic[T, E]):
 
     def map_result(self, fn: Callable[[T], Result[R, E]]) -> 'MaybeResultT[R, E]':
         """:raises MonadError: if the passed function is marked as impure"""
-        _panic_on_impure(self.__class__.__name__, 'map_result', fn)
+        panic_on_impure(self.__class__.__name__, 'map_result', fn)
         if isinstance(self.inner, Nothing):
             return cast(MaybeResultT[R, E], self)
         result = self.inner.value
@@ -106,7 +106,7 @@ class MaybeResultT(Generic[T, E]):
 
     def bind(self, fn: Callable[[T], 'MaybeResultT[R, E]']) -> 'MaybeResultT[R, E]':
         """:raises MonadError: if the passed function is marked as impure"""
-        _panic_on_impure(self.__class__.__name__, 'bind', fn)
+        panic_on_impure(self.__class__.__name__, 'bind', fn)
         if isinstance(self.inner, Nothing):
             return cast(MaybeResultT[R, E], self)
         result = self.inner.value
@@ -116,7 +116,7 @@ class MaybeResultT(Generic[T, E]):
 
     def map_error(self, fn: Callable[[E], NewE]) -> 'MaybeResultT[T, NewE]':
         """:raises MonadError: if the passed function is marked as impure"""
-        _panic_on_impure(self.__class__.__name__, 'map_error', fn)
+        panic_on_impure(self.__class__.__name__, 'map_error', fn)
         if isinstance(self.inner, Nothing):
             return cast(MaybeResultT[T, NewE], self)
         result = self.inner.value
@@ -132,7 +132,7 @@ class MaybeResultT(Generic[T, E]):
 
     def unfold(self, *, just: Callable[[Result[T, E]], R], nothing: Callable[[], R]) -> R:
         """:raises MonadError: if the passed function is marked as impure"""
-        _panic_on_impure(self.__class__.__name__, 'unfold', just, nothing)
+        panic_on_impure(self.__class__.__name__, 'unfold', just, nothing)
         if isinstance(self.inner, Nothing):
             return nothing()
         return just(self.inner.value)
@@ -161,7 +161,7 @@ def from_try(is_nullable: Callable[[R], bool] = lambda v: v is None):
         :raises MonadError: if the passed function is marked as impure
     """
     def decorator(fn: Callable[Args, R]) -> Callable[Args, MaybeResultT[R, Exception]]:
-        _panic_on_impure('maybe_transformer', 'from_try', fn)
+        panic_on_impure('maybe_transformer', 'from_try', fn)
 
         def wrapper(*args: Args.args, **kwargs: Args.kwargs) -> MaybeResultT[R, Exception]:
             try:
@@ -185,7 +185,7 @@ def ap(fn: MaybeResultT[Callable[[T], R], E], val: MaybeResultT[T, E]) -> MaybeR
         return cast(MaybeResultT[R, E], fn)
     if isinstance(fn.inner.value, Err):
         return cast(MaybeResultT[R, E], fn)
-    _panic_on_impure('maybe_transformer', 'ap', fn.inner.value.value)
+    panic_on_impure('maybe_transformer', 'ap', fn.inner.value.value)
     if isinstance(val.inner, Nothing):
         return cast(MaybeResultT[R, E], val)
     if isinstance(val.inner.value, Err):

@@ -3,7 +3,7 @@ from collections.abc import Callable, Iterable, Iterator
 from typing import TypeVar, TypeAlias, Generic, Union, ParamSpec, Never, Any
 
 from mafunca.curry import curry2, curry3, curry4, curry
-from mafunca.specials import _panic_on_impure  # noqa
+from mafunca.specials import panic_on_impure
 
 
 __all__ = [
@@ -41,12 +41,12 @@ class Just(Generic[T]):
 
     def map(self, fn: Callable[[T], R]) -> 'Just[R]':
         """:raises MonadError: if the passed function is marked as impure"""
-        _panic_on_impure(self.__class__.__name__, 'map', fn)
+        panic_on_impure(self.__class__.__name__, 'map', fn)
         return Just(fn(self.value))
 
     def bind(self, fn: Callable[[T], 'Maybe[R]']) -> 'Maybe[R]':
         """:raises MonadError: if the passed function is marked as impure"""
-        _panic_on_impure(self.__class__.__name__, 'bind', fn)
+        panic_on_impure(self.__class__.__name__, 'bind', fn)
         return fn(self.value)
 
     def get_or_else(self, alter: T) -> T:  # noqa
@@ -54,7 +54,7 @@ class Just(Generic[T]):
 
     def unfold(self, *, just: Callable[[T], R], nothing: Callable[[], R]) -> R:
         """:raises MonadError: if the passed functions are marked as impure"""
-        _panic_on_impure(self.__class__.__name__, 'unfold', just, nothing)
+        panic_on_impure(self.__class__.__name__, 'unfold', just, nothing)
         return just(self.value)
 
 
@@ -72,12 +72,12 @@ class Nothing:
 
     def map(self, fn: Callable[[Never], R]) -> 'Nothing':
         """:raises MonadError: if the passed function is marked as impure"""
-        _panic_on_impure(self.__class__.__name__, 'map', fn)
+        panic_on_impure(self.__class__.__name__, 'map', fn)
         return self
 
     def bind(self, fn: Callable[[Never], 'Maybe[R]']) -> 'Nothing':
         """:raises MonadError: if the passed function is marked as impure"""
-        _panic_on_impure(self.__class__.__name__, 'bind', fn)
+        panic_on_impure(self.__class__.__name__, 'bind', fn)
         return self
 
     def get_or_else(self, alter: T) -> T:  # noqa
@@ -85,7 +85,7 @@ class Nothing:
 
     def unfold(self, *, just: Callable[[Never], R], nothing: Callable[[], R]) -> R:
         """:raises MonadError: if the passed functions are marked as impure"""
-        _panic_on_impure(self.__class__.__name__, 'unfold', just, nothing)
+        panic_on_impure(self.__class__.__name__, 'unfold', just, nothing)
         return nothing()
 
 
@@ -134,7 +134,7 @@ def ap(fn: Maybe[Callable[[T], R]], val: Maybe[T]) -> Maybe[R]:
     """
     if isinstance(fn, Nothing):
         return fn
-    _panic_on_impure('maybe module', 'ap', fn.value)
+    panic_on_impure('maybe module', 'ap', fn.value)
     if isinstance(val, Nothing):
         return val
     return Just(fn.value(val.value))
