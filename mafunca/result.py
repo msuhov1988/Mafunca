@@ -131,7 +131,7 @@ def from_try(fn: Callable[Args, R]) -> Callable[Args, Result[R, Exception]]:
 
     def from_try_inner(*args: Args.args, **kwargs: Args.kwargs) -> Result[R, Exception]:
         try:
-            return Ok(fn(*args, **kwargs))
+            return ok_of(fn(*args, **kwargs))
         except Exception as err:
             if isinstance(err, MonadError):
                 raise err
