@@ -12,10 +12,10 @@ from mafunca.common.side_support import Report
 
 __all__ = [
     "AsyncSide",
-    "side_run",
-    "side_safe_run",
-    "side_rebuild_run",
-    "insist"
+    "async_side_run",
+    "async_side_safe_run",
+    "async_side_rebuild_run",
+    "async_insist"
 ]
 
 
@@ -60,7 +60,7 @@ class AsyncSide(Generic[A]):
             Only for synchronous functions - will be executed in a separate thread
             :raises MonadError: function must be sync
         """
-        panic_on_coroutine(fn, AsyncSide.__name__, 'prime_to_thread')
+        panic_on_coroutine(fn, AsyncSide.__name__, 'effect_to_thread')
         return AsyncPrimeThread(fn, delay)
 
 
@@ -88,7 +88,7 @@ class AsyncContinuation(AsyncSide[B]):
     next_origin: Callable[[Any], Union[B, AsyncSide[B]]]
 
 
-async def side_run(effect: AsyncSide[A]) -> A:
+async def async_side_run(effect: AsyncSide[A]) -> A:
     """
         Simple asynchronous executor - just runs a chain.
         :raises MonadError: violations of the contract
@@ -126,7 +126,7 @@ async def side_run(effect: AsyncSide[A]) -> A:
             panic_on_violations(AsyncSide.__name__, 'side_run', entity)
 
 
-async def side_safe_run(effect: AsyncSide[A]) -> Result[A, Exception]:
+async def async_side_safe_run(effect: AsyncSide[A]) -> Result[A, Exception]:
     """
         Asynchronous executor - runs a chain, catching possible errors - heirs of 'Exception'
 
@@ -168,8 +168,8 @@ async def side_safe_run(effect: AsyncSide[A]) -> Result[A, Exception]:
             panic_on_violations(AsyncSide.__name__, 'side_safe_run', entity)
 
 
-def _rebuild_from_prime(prime, continuations, to_thread: False) -> AsyncSide:
-    effect = AsyncSide.effect(prime) if not to_thread else AsyncSide.effect_to_thread(prime)
+def _rebuild_from_prime(prime, delay, continuations, to_thread: bool) -> AsyncSide:
+    effect = AsyncSide.effect(prime, delay) if not to_thread else AsyncSide.effect_to_thread(prime, delay)
 
     while len(continuations) > 0:
         cont, cont_origin = continuations.pop()
@@ -188,7 +188,7 @@ def _rebuild_from_pure(pure_val, continuations) -> AsyncSide:
     return effect
 
 
-async def side_rebuild_run(effect: AsyncSide[A]) -> Report[AsyncSide[A]]:
+async def async_side_rebuild_run(effect: AsyncSide[A]) -> Report[AsyncSide[A]]:
     """
         Asynchronous executor - runs a chain, catching possible errors - heirs of 'Exception'
 
@@ -210,14 +210,14 @@ async def side_rebuild_run(effect: AsyncSide[A]) -> Report[AsyncSide[A]]:
         elif isinstance(entity, AsyncPrime):
             output, error = await async_prime_catch(entity.prime, delay=entity.delay)
             if error is not None:
-                rest = _rebuild_from_prime(entity.prime, continuations, to_thread=False)
+                rest = _rebuild_from_prime(entity.prime, entity.delay, continuations, to_thread=False)
                 return cast(Report[AsyncSide[A]], Report(last_success, error, entity.prime, remainder=rest))
             entity = AsyncPure(output)
 
         elif isinstance(entity, AsyncPrimeThread):
             output, error = await async_prime_thread_catch(entity.prime_thread, delay=entity.delay)
             if error is not None:
-                rest = _rebuild_from_prime(entity.prime_thread, continuations, to_thread=True)
+                rest = _rebuild_from_prime(entity.prime_thread, entity.delay, continuations, to_thread=True)
                 return cast(Report[AsyncSide[A]], Report(last_success, error, entity.prime_thread, remainder=rest))
             entity = AsyncPure(output)
 
@@ -237,7 +237,7 @@ async def side_rebuild_run(effect: AsyncSide[A]) -> Report[AsyncSide[A]]:
             panic_on_violations(AsyncSide.__name__, 'side_rebuild_run', entity)
 
 
-async def insist(effect: AsyncSide[A], attempts: int = 1, pause: Union[int, float] = 0) -> Report[AsyncSide[A]]:
+async def async_insist(effect: AsyncSide[A], attempts: int = 1, pause: Union[int, float] = 0) -> Report[AsyncSide[A]]:
     """
         Makes 'attempts' to execute an effect with 'pause' intervals between them
 
@@ -248,9 +248,9 @@ async def insist(effect: AsyncSide[A], attempts: int = 1, pause: Union[int, floa
         :raises MonadError: violations of the contract
         :raises TimeoutError: delay is set for the effect and the waiting time has been exceeded.
     """
-    chain, report = effect, Report(None, None, None, None)
+    chain, report = effect, Report(None, None, None, effect)
     for _ in range(attempts):
-        report = await side_rebuild_run(chain)
+        report = await async_side_rebuild_run(chain)
         if not report.completed_successfully:
             chain = report.remainder
             await asyncio.sleep(pause)

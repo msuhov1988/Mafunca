@@ -29,9 +29,13 @@ class Side(Generic[A]):
         Lazy: not executed until the corresponding executor is called.
     """
     def map(self, fn: Callable[[A], B]) -> 'Side[B]':
+        """:raises MonadError: function must be sync"""
+        panic_on_coroutine(fn, self.__class__.__name__, 'map')
         return Continuation(self, lambda a: Pure(fn(a)), fn)
 
     def bind(self, fn: Callable[[A], 'Side[B]']) -> 'Side[B]':
+        """:raises MonadError: function must be sync"""
+        panic_on_coroutine(fn, self.__class__.__name__, 'bind')
         return Continuation(self, fn, fn)
 
     @staticmethod
@@ -40,6 +44,8 @@ class Side(Generic[A]):
 
     @staticmethod
     def effect(fn: Callable[[], A]) -> 'Side[A]':
+        """:raises MonadError: function must be sync"""
+        panic_on_coroutine(fn, Side.__name__, 'effect')
         return Prime(fn)
 
 
@@ -181,7 +187,7 @@ def insist(effect: Side[A], attempts: int = 1, pause: Union[int, float] = 0) -> 
         MonadError is not suppressed.
         :raises MonadError: violations of the contract
     """
-    chain, report = effect, Report(None, None, None, None)
+    chain, report = effect, Report(None, None, None, effect)
     for _ in range(attempts):
         report = side_rebuild_run(chain)
         if not report.completed_successfully:

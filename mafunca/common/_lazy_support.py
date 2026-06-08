@@ -95,6 +95,10 @@ def panic_on_violations(monad_name: str, runner_name: str, entity):
     )
 
 
+def _extract_name(func) -> str:
+    return getattr(func, "__qualname__", getattr(func, "__name__", f"{func}"))
+
+
 def panic_on_coroutine(fn: Callable, monad_name: str, method_name: str):
     """
        Panic when the monadic contract is violated - function must be sync.
@@ -104,5 +108,5 @@ def panic_on_coroutine(fn: Callable, monad_name: str, method_name: str):
         raise MonadError(
             monad=monad_name,
             method=method_name,
-            message=f"function '{fn}' - async function can not be used"
+            message=f"function '{_extract_name(fn)}' - async function can not be used"
         )

@@ -3,7 +3,11 @@ import asyncio
 from time import sleep
 
 from mafunca.common.exceptions import MonadError
-from mafunca.side_async import AsyncSide, side_run, side_safe_run, side_rebuild_run, insist
+from mafunca.side_async import AsyncSide
+from mafunca.side_async import async_side_run as side_run
+from mafunca.side_async import async_side_safe_run as side_safe_run
+from mafunca.side_async import async_side_rebuild_run as side_rebuild_run
+from mafunca.side_async import async_insist as insist
 
 
 class TestAsyncSide(unittest.IsolatedAsyncioTestCase):
