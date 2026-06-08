@@ -3,11 +3,11 @@ import asyncio
 from collections.abc import Callable, Awaitable
 from typing import Generic, TypeVar, Any, Union, Optional, cast
 
-from mafunca.common._lazy_support import prime_catch, continuation_catch  # noqa
-from mafunca.common._lazy_support import async_prime_catch, async_prime_thread_catch  # noqa
-from mafunca.common._lazy_support import panic_on_violations, panic_on_coroutine  # noqa
+from mafunca._lazy_support import continuation_catch  # noqa
+from mafunca._lazy_support import async_prime_catch, async_prime_thread_catch  # noqa
+from mafunca._lazy_support import panic_on_violations, panic_on_coroutine  # noqa
 from mafunca.result import Result, Ok, Err
-from mafunca.common.side_support import Report
+from mafunca.side_report import Report
 
 
 __all__ = [
@@ -123,7 +123,7 @@ async def async_side_run(effect: AsyncSide[A]) -> A:
             entity = cont(entity.value)
 
         else:
-            panic_on_violations(AsyncSide.__name__, 'side_run', entity)
+            panic_on_violations(AsyncSide.__name__, 'async_side_run', entity)
 
 
 async def async_side_safe_run(effect: AsyncSide[A]) -> Result[A, Exception]:
@@ -144,28 +144,28 @@ async def async_side_safe_run(effect: AsyncSide[A]) -> Result[A, Exception]:
             entity = entity.current
 
         elif isinstance(entity, AsyncPrime):
-            output, error = await async_prime_catch(entity.prime, delay=entity.delay)
-            if error is not None:
-                return cast(Result[A, Exception], Err(error))
-            entity = AsyncPure(output)
+            result = await async_prime_catch(entity.prime, delay=entity.delay)
+            if isinstance(result, Err):
+                return cast(Result[A, Exception], result)
+            entity = AsyncPure(result.value)
 
         elif isinstance(entity, AsyncPrimeThread):
-            output, error = await async_prime_thread_catch(entity.prime_thread, delay=entity.delay)
-            if error is not None:
-                return cast(Result[A, Exception], Err(error))
-            entity = AsyncPure(output)
+            result = await async_prime_thread_catch(entity.prime_thread, delay=entity.delay)
+            if isinstance(result, Err):
+                return cast(Result[A, Exception], result)
+            entity = AsyncPure(result.value)
 
         elif isinstance(entity, AsyncPure):
             if len(continuations) == 0:
                 return cast(Result[A, Exception], Ok(entity.value))
             cont = continuations.pop()
-            output, error = continuation_catch(cont, entity.value)
-            if error is not None:
-                return cast(Result[A, Exception], Err(error))
-            entity = output
+            result = continuation_catch(cont, entity.value)
+            if isinstance(result, Err):
+                return cast(Result[A, Exception], result)
+            entity = result.value
 
         else:
-            panic_on_violations(AsyncSide.__name__, 'side_safe_run', entity)
+            panic_on_violations(AsyncSide.__name__, 'async_side_safe_run', entity)
 
 
 def _rebuild_from_prime(prime, delay, continuations, to_thread: bool) -> AsyncSide:
@@ -188,7 +188,7 @@ def _rebuild_from_pure(pure_val, continuations) -> AsyncSide:
     return effect
 
 
-async def async_side_rebuild_run(effect: AsyncSide[A]) -> Report[AsyncSide[A]]:
+async def async_side_rebuild_run(effect: AsyncSide[A]) -> Report[Any, AsyncSide[A]]:
     """
         Asynchronous executor - runs a chain, catching possible errors - heirs of 'Exception'
 
@@ -208,36 +208,46 @@ async def async_side_rebuild_run(effect: AsyncSide[A]) -> Report[AsyncSide[A]]:
             entity = entity.current
 
         elif isinstance(entity, AsyncPrime):
-            output, error = await async_prime_catch(entity.prime, delay=entity.delay)
-            if error is not None:
+            result = await async_prime_catch(entity.prime, delay=entity.delay)
+            if isinstance(result, Err):
                 rest = _rebuild_from_prime(entity.prime, entity.delay, continuations, to_thread=False)
-                return cast(Report[AsyncSide[A]], Report(last_success, error, entity.prime, remainder=rest))
-            entity = AsyncPure(output)
+                return cast(
+                    Report[Any, AsyncSide[A]],
+                    Report(last_success, result.error, entity.prime, remainder=rest)
+                )
+            entity = AsyncPure(result.value)
 
         elif isinstance(entity, AsyncPrimeThread):
-            output, error = await async_prime_thread_catch(entity.prime_thread, delay=entity.delay)
-            if error is not None:
+            result = await async_prime_thread_catch(entity.prime_thread, delay=entity.delay)
+            if isinstance(result, Err):
                 rest = _rebuild_from_prime(entity.prime_thread, entity.delay, continuations, to_thread=True)
-                return cast(Report[AsyncSide[A]], Report(last_success, error, entity.prime_thread, remainder=rest))
-            entity = AsyncPure(output)
+                return cast(
+                    Report[Any, AsyncSide[A]],
+                    Report(last_success, result.error, entity.prime_thread, remainder=rest)
+                )
+            entity = AsyncPure(result.value)
 
         elif isinstance(entity, AsyncPure):
             if len(continuations) == 0:
-                return cast(Report[AsyncSide[A]], Report(entity.value, None, faulty=None, remainder=None))
+                return cast(Report[Any, AsyncSide[A]], Report(entity.value, None, None, remainder=None))
             last_success = entity.value
             cont, cont_origin = continuations.pop()
-            output, error = continuation_catch(cont, last_success)
-            if error is not None:
+            result = continuation_catch(cont, last_success)
+            if isinstance(result, Err):
                 continuations.append((cont, cont_origin))
                 rest = _rebuild_from_pure(last_success, continuations)
-                return cast(Report[AsyncSide[A]], Report(last_success, error, faulty=cont_origin, remainder=rest))
-            entity = output
+                return cast(Report[Any, AsyncSide[A]], Report(last_success, result.error, cont_origin, remainder=rest))
+            entity = result.value
 
         else:
-            panic_on_violations(AsyncSide.__name__, 'side_rebuild_run', entity)
+            panic_on_violations(AsyncSide.__name__, 'async_side_rebuild_run', entity)
 
 
-async def async_insist(effect: AsyncSide[A], attempts: int = 1, pause: Union[int, float] = 0) -> Report[AsyncSide[A]]:
+async def async_insist(
+        effect: AsyncSide[A],
+        attempts: int = 1,
+        pause: Union[int, float] = 0
+) -> Report[Any, AsyncSide[A]]:
     """
         Makes 'attempts' to execute an effect with 'pause' intervals between them
 
@@ -256,4 +266,4 @@ async def async_insist(effect: AsyncSide[A], attempts: int = 1, pause: Union[int
             await asyncio.sleep(pause)
             continue
         break
-    return cast(Report[AsyncSide[A]], report)
+    return cast(Report[Any, AsyncSide[A]], report)

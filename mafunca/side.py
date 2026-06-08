@@ -3,11 +3,10 @@ from time import sleep
 from collections.abc import Callable
 from typing import Generic, TypeVar, Any, Union, cast
 
-from mafunca.common._lazy_support import prime_catch, continuation_catch  # noqa
-from mafunca.common._lazy_support import async_prime_catch, async_prime_thread_catch  # noqa
-from mafunca.common._lazy_support import panic_on_violations, panic_on_coroutine  # noqa
+from mafunca._lazy_support import prime_catch, continuation_catch  # noqa
+from mafunca._lazy_support import panic_on_violations, panic_on_coroutine  # noqa
 from mafunca.result import Result, Ok, Err
-from mafunca.common.side_support import Report
+from mafunca.side_report import Report
 
 
 __all__ = [
@@ -104,19 +103,19 @@ def side_safe_run(effect: Side[A]) -> Result[A, Exception]:
             entity = entity.current
 
         elif isinstance(entity, Prime):
-            output, error = prime_catch(entity.prime)
-            if error is not None:
-                return cast(Result[A, Exception], Err(error))
-            entity = Pure(output)
+            result = prime_catch(entity.prime)
+            if isinstance(result, Err):
+                return cast(Result[A, Exception], result)
+            entity = Pure(result.value)
 
         elif isinstance(entity, Pure):
             if len(continuations) == 0:
                 return cast(Result[A, Exception], Ok(entity.value))
             cont = continuations.pop()
-            output, error = continuation_catch(cont, entity.value)
-            if error is not None:
-                return cast(Result[A, Exception], Err(error))
-            entity = output
+            result = continuation_catch(cont, entity.value)
+            if isinstance(result, Err):
+                return cast(Result[A, Exception], result)
+            entity = result.value
 
         else:
             panic_on_violations(Side.__name__, 'side_safe_run', entity)
@@ -142,7 +141,7 @@ def _rebuild_from_pure(pure_val, continuations) -> Side:
     return effect
 
 
-def side_rebuild_run(effect: Side[A]) -> Report[Side[A]]:
+def side_rebuild_run(effect: Side[A]) -> Report[Any, Side[A]]:
     """
         Synchronous executor - runs a chain, catching possible errors - heirs of 'Exception'.
 
@@ -158,29 +157,29 @@ def side_rebuild_run(effect: Side[A]) -> Report[Side[A]]:
             entity = entity.current
 
         elif isinstance(entity, Prime):
-            output, error = prime_catch(entity.prime)
-            if error is not None:
+            result = prime_catch(entity.prime)
+            if isinstance(result, Err):
                 rest = _rebuild_from_prime(entity.prime, continuations)
-                return cast(Report[Side[A]], Report(last_success, exception=error, faulty=entity.prime, remainder=rest))
-            entity = Pure(output)
+                return cast(Report[Any, Side[A]], Report(last_success, result.error, entity.prime, remainder=rest))
+            entity = Pure(result.value)
 
         elif isinstance(entity, Pure):
             if len(continuations) == 0:
-                return cast(Report[Side[A]], Report(entity.value, exception=None, faulty=None, remainder=None))
+                return cast(Report[Any, Side[A]], Report(entity.value, None, None, remainder=None))
             last_success = entity.value
             cont, cont_origin = continuations.pop()
-            output, error = continuation_catch(cont, last_success)
-            if error is not None:
+            result = continuation_catch(cont, last_success)
+            if isinstance(result, Err):
                 continuations.append((cont, cont_origin))
                 rest = _rebuild_from_pure(last_success, continuations)
-                return cast(Report[Side[A]], Report(last_success, exception=error, faulty=cont_origin, remainder=rest))
-            entity = output
+                return cast(Report[Any, Side[A]], Report(last_success, result.error, cont_origin, remainder=rest))
+            entity = result.value
 
         else:
             panic_on_violations(Side.__name__, 'side_rebuild_run', entity)
 
 
-def insist(effect: Side[A], attempts: int = 1, pause: Union[int, float] = 0) -> Report[Side[A]]:
+def insist(effect: Side[A], attempts: int = 1, pause: Union[int, float] = 0) -> Report[Any, Side[A]]:
     """
         Makes 'attempts' to execute an effect with 'pause' intervals between them
 
@@ -195,4 +194,4 @@ def insist(effect: Side[A], attempts: int = 1, pause: Union[int, float] = 0) -> 
             sleep(pause)
             continue
         break
-    return cast(Report[Side[A]], report)
+    return cast(Report[Any, Side[A]], report)
