@@ -29,7 +29,6 @@ async def async_prime_catch(
         asyncio.CancelledError is not suppressed.
 
         MonadError is not suppressed
-        :raises TimeoutError: delay is set and the waiting time has been exceeded.
     """
     try:
         if delay is None:
@@ -56,7 +55,6 @@ async def async_prime_thread_catch(
         asyncio.CancelledError is not suppressed.
 
         MonadError is not suppressed
-        :raises TimeoutError: delay is set and the waiting time has been exceeded.
     """
     try:
         if delay is None:
