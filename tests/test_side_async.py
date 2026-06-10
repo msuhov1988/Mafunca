@@ -93,29 +93,77 @@ class TestAsyncSide(unittest.IsolatedAsyncioTestCase):
 
     async def test_delay(self):
         async def fn():
-            await asyncio.sleep(2)
+            await asyncio.sleep(0.3)
             return 1
 
-        eff = AsyncSide.effect(fn, delay=1)
+        eff = AsyncSide.effect(fn, timeout=0.1)
         with self.assertRaises(TimeoutError):
             await side_run(eff)
 
-        eff = AsyncSide.effect(fn, delay=3)
+        res = await side_safe_run(eff)
+        self.assertTrue(res.is_error)
+        self.assertIsInstance(res.error, TimeoutError)
+
+        res = await side_rebuild_run(eff)
+        self.assertFalse(res.completed_successfully)
+        self.assertIsInstance(res.exception, TimeoutError)
+
+        eff = AsyncSide.effect(fn, timeout=0.6)
         val = await side_run(eff)
         self.assertEqual(val, 1)
 
     async def test_delay_to_thread(self):
         def fn():
-            sleep(2)
+            sleep(0.3)
             return 1
 
-        eff = AsyncSide.effect_to_thread(fn, delay=1)
+        eff = AsyncSide.effect_to_thread(fn, timeout=0.1)
         with self.assertRaises(TimeoutError):
             await side_run(eff)
 
-        eff = AsyncSide.effect_to_thread(fn, delay=3)
+        res = await side_safe_run(eff)
+        self.assertTrue(res.is_error)
+        self.assertIsInstance(res.error, TimeoutError)
+
+        res = await side_rebuild_run(eff)
+        self.assertFalse(res.completed_successfully)
+        self.assertIsInstance(res.exception, TimeoutError)
+
+        eff = AsyncSide.effect_to_thread(fn, timeout=0.6)
         val = await side_run(eff)
         self.assertEqual(val, 1)
+
+    async def test_cancellation(self):
+        async def first():
+            await asyncio.sleep(0.1)
+            return 1
+
+        def second(val):
+            async def inner():
+                await asyncio.sleep(0.1)
+                return val + 1
+
+            return AsyncSide.effect(inner)
+
+        eff = AsyncSide.effect(first).bind(second)
+
+        task1 = asyncio.create_task(side_run(eff))
+        await asyncio.sleep(0)
+        task1.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task1
+
+        task2 = asyncio.create_task(side_safe_run(eff))
+        await asyncio.sleep(0)
+        task2.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task2
+
+        task3 = asyncio.create_task(side_rebuild_run(eff))
+        await asyncio.sleep(0)
+        task3.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task3
 
     async def test_rebuild_errors(self):
         async def raiser():

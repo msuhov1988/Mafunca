@@ -32,7 +32,7 @@ class AsyncSide(Generic[A]):
     def map(self, fn: Callable[[A], B]) -> 'AsyncSide[B]':
         """
             Only for synchronous functions - pure calculation
-            :raises MonadError: function must be sync
+            :raises MonadError: coroutine functions are not allowed
         """
         panic_on_coroutine(fn, self.__class__.__name__, 'map')
         return AsyncContinuation(self, lambda a: AsyncPure(fn(a)), fn)
@@ -41,7 +41,7 @@ class AsyncSide(Generic[A]):
         """
             The function that returns the effect must be synchronous.
             Asynchrony is assumed inside the effect
-            :raises MonadError: function must be sync
+            :raises MonadError: coroutine functions are not allowed
         """
         panic_on_coroutine(fn, self.__class__.__name__, 'bind')
         return AsyncContinuation(self, fn, fn)
@@ -51,17 +51,17 @@ class AsyncSide(Generic[A]):
         return AsyncPure(value)
 
     @staticmethod
-    def effect(fn: Callable[[], Awaitable[A]], delay: Optional[Union[int, float]] = None) -> 'AsyncSide[A]':
-        return AsyncPrime(fn, delay)
+    def effect(fn: Callable[[], Awaitable[A]], timeout: Optional[Union[int, float]] = None) -> 'AsyncSide[A]':
+        return AsyncPrime(fn, timeout)
 
     @staticmethod
-    def effect_to_thread(fn: Callable[[], A], delay: Optional[Union[int, float]] = None) -> 'AsyncSide[A]':
+    def effect_to_thread(fn: Callable[[], A], timeout: Optional[Union[int, float]] = None) -> 'AsyncSide[A]':
         """
             Only for synchronous functions - will be executed in a separate thread
-            :raises MonadError: function must be sync
+            :raises MonadError: coroutine functions are not allowed
         """
         panic_on_coroutine(fn, AsyncSide.__name__, 'effect_to_thread')
-        return AsyncPrimeThread(fn, delay)
+        return AsyncPrimeThread(fn, timeout)
 
 
 @dataclass(frozen=True, slots=True, repr=True)
@@ -72,13 +72,13 @@ class AsyncPure(AsyncSide[A]):
 @dataclass(frozen=True, slots=True, repr=True)
 class AsyncPrime(AsyncSide[A]):
     prime: Callable[[], Awaitable[A]]
-    delay: Optional[Union[int, float]]
+    timeout: Optional[Union[int, float]]
 
 
 @dataclass(frozen=True, slots=True, repr=True)
 class AsyncPrimeThread(AsyncSide[A]):
     prime_thread: Callable[[], A]
-    delay: Optional[Union[int, float]]
+    timeout: Optional[Union[int, float]]
 
 
 @dataclass(frozen=True, slots=True, repr=True)
@@ -92,7 +92,6 @@ async def async_side_run(effect: AsyncSide[A]) -> A:
     """
         Simple asynchronous executor - just runs a chain.
         :raises MonadError: violations of the contract
-        :raises TimeoutError: delay is set for the effect and the waiting time has been exceeded.
     """
     entity, continuations = effect, list()
     while True:
@@ -101,18 +100,18 @@ async def async_side_run(effect: AsyncSide[A]) -> A:
             entity = entity.current
 
         elif isinstance(entity, AsyncPrime):
-            if entity.delay is None:
+            if entity.timeout is None:
                 output = await entity.prime()
             else:
-                async with asyncio.timeout(delay=entity.delay):
+                async with asyncio.timeout(delay=entity.timeout):
                     output = await entity.prime()
             entity = AsyncPure(output)
 
         elif isinstance(entity, AsyncPrimeThread):
-            if entity.delay is None:
+            if entity.timeout is None:
                 output = await asyncio.to_thread(entity.prime_thread)
             else:
-                async with asyncio.timeout(delay=entity.delay):
+                async with asyncio.timeout(delay=entity.timeout):
                     output = await asyncio.to_thread(entity.prime_thread)
             entity = AsyncPure(output)
 
@@ -135,7 +134,6 @@ async def async_side_safe_run(effect: AsyncSide[A]) -> Result[A, Exception]:
         asyncio.CancelledError is not suppressed.
 
         :raises MonadError: violations of the contract
-        :raises TimeoutError: delay is set for the effect and the waiting time has been exceeded.
     """
     entity, continuations = effect, list()
     while True:
@@ -144,13 +142,13 @@ async def async_side_safe_run(effect: AsyncSide[A]) -> Result[A, Exception]:
             entity = entity.current
 
         elif isinstance(entity, AsyncPrime):
-            result = await async_prime_catch(entity.prime, delay=entity.delay)
+            result = await async_prime_catch(entity.prime, delay=entity.timeout)
             if isinstance(result, Err):
                 return cast(Result[A, Exception], result)
             entity = AsyncPure(result.value)
 
         elif isinstance(entity, AsyncPrimeThread):
-            result = await async_prime_thread_catch(entity.prime_thread, delay=entity.delay)
+            result = await async_prime_thread_catch(entity.prime_thread, delay=entity.timeout)
             if isinstance(result, Err):
                 return cast(Result[A, Exception], result)
             entity = AsyncPure(result.value)
@@ -199,7 +197,6 @@ async def async_side_rebuild_run(effect: AsyncSide[A]) -> Report[Any, AsyncSide[
         asyncio.CancelledError is not suppressed.
 
         :raises MonadError: violations of the contract
-        :raises TimeoutError: delay is set for the effect and the waiting time has been exceeded.
     """
     entity, continuations, last_success = effect, list(), None
     while True:
@@ -208,9 +205,9 @@ async def async_side_rebuild_run(effect: AsyncSide[A]) -> Report[Any, AsyncSide[
             entity = entity.current
 
         elif isinstance(entity, AsyncPrime):
-            result = await async_prime_catch(entity.prime, delay=entity.delay)
+            result = await async_prime_catch(entity.prime, delay=entity.timeout)
             if isinstance(result, Err):
-                rest = _rebuild_from_prime(entity.prime, entity.delay, continuations, to_thread=False)
+                rest = _rebuild_from_prime(entity.prime, entity.timeout, continuations, to_thread=False)
                 return cast(
                     Report[Any, AsyncSide[A]],
                     Report(last_success, result.error, entity.prime, remainder=rest)
@@ -218,9 +215,9 @@ async def async_side_rebuild_run(effect: AsyncSide[A]) -> Report[Any, AsyncSide[
             entity = AsyncPure(result.value)
 
         elif isinstance(entity, AsyncPrimeThread):
-            result = await async_prime_thread_catch(entity.prime_thread, delay=entity.delay)
+            result = await async_prime_thread_catch(entity.prime_thread, delay=entity.timeout)
             if isinstance(result, Err):
-                rest = _rebuild_from_prime(entity.prime_thread, entity.delay, continuations, to_thread=True)
+                rest = _rebuild_from_prime(entity.prime_thread, entity.timeout, continuations, to_thread=True)
                 return cast(
                     Report[Any, AsyncSide[A]],
                     Report(last_success, result.error, entity.prime_thread, remainder=rest)
@@ -256,7 +253,6 @@ async def async_insist(
         asyncio.CancelledError is not suppressed.
 
         :raises MonadError: violations of the contract
-        :raises TimeoutError: delay is set for the effect and the waiting time has been exceeded.
     """
     chain, report = effect, Report(None, None, None, effect)
     for _ in range(attempts):

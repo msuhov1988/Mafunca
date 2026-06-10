@@ -28,12 +28,12 @@ class Side(Generic[A]):
         Lazy: not executed until the corresponding executor is called.
     """
     def map(self, fn: Callable[[A], B]) -> 'Side[B]':
-        """:raises MonadError: function must be sync"""
+        """:raises MonadError: coroutine functions are not allowed"""
         panic_on_coroutine(fn, self.__class__.__name__, 'map')
         return Continuation(self, lambda a: Pure(fn(a)), fn)
 
     def bind(self, fn: Callable[[A], 'Side[B]']) -> 'Side[B]':
-        """:raises MonadError: function must be sync"""
+        """:raises MonadError: coroutine functions are not allowed"""
         panic_on_coroutine(fn, self.__class__.__name__, 'bind')
         return Continuation(self, fn, fn)
 
@@ -43,7 +43,7 @@ class Side(Generic[A]):
 
     @staticmethod
     def effect(fn: Callable[[], A]) -> 'Side[A]':
-        """:raises MonadError: function must be sync"""
+        """:raises MonadError: coroutine functions are not allowed"""
         panic_on_coroutine(fn, Side.__name__, 'effect')
         return Prime(fn)
 
