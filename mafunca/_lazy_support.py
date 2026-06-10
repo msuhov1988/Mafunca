@@ -1,84 +1,9 @@
-import asyncio
 import inspect
-from collections.abc import Callable, Awaitable
-from typing import TypeVar, Union, Optional
+from dataclasses import dataclass
+from collections.abc import Callable, Generator
+from typing import TypeVar, TypeAlias, Type, Optional, Any, Tuple, List
 
 from mafunca.common.exceptions import MonadError
-from mafunca.result import Ok, Err, Result
-
-
-A = TypeVar("A")
-B = TypeVar("B")
-
-
-def prime_catch(prime: Callable[[], A]) -> Result[A, Exception]:
-    """MonadError is not suppressed"""
-    try:
-        return Ok(prime())
-    except MonadError:
-        raise
-    except Exception as err:
-        return Err(err)
-
-
-async def async_prime_catch(
-        prime: Callable[[], Awaitable[A]],
-        delay: Optional[Union[int, float]]
-) -> Result[A, Exception]:
-    """
-        asyncio.CancelledError is not suppressed.
-
-        MonadError is not suppressed
-    """
-    try:
-        if delay is None:
-            entity = await prime()
-        else:
-            async with asyncio.timeout(delay=delay):
-                entity = await prime()
-        return Ok(entity)
-    except asyncio.CancelledError:
-        raise
-    except MonadError:
-        raise
-    except Exception as err:
-        return Err(err)
-
-
-async def async_prime_thread_catch(
-        prime_sync: Callable[[], A],
-        delay: Optional[Union[int, float]]
-) -> Result[A, Exception]:
-    """
-        Performs a synchronous function in a separate thread
-
-        asyncio.CancelledError is not suppressed.
-
-        MonadError is not suppressed
-    """
-    try:
-        if delay is None:
-            entity = await asyncio.to_thread(prime_sync)
-        else:
-            async with asyncio.timeout(delay=delay):
-                entity = await asyncio.to_thread(prime_sync)
-        return Ok(entity)
-    except asyncio.CancelledError:
-        raise
-    except MonadError:
-        raise
-    except Exception as err:
-        return Err(err)
-
-
-def continuation_catch(cont: Callable[[A], B], arg: A) -> Result[B, Exception]:
-    """MonadError is not suppressed"""
-    try:
-        return Ok(cont(arg))
-    except MonadError:
-        raise
-    except Exception as err:
-        return Err(err)
 
 
 def panic_on_violations(monad_name: str, runner_name: str, entity):
@@ -110,3 +35,67 @@ def panic_on_coroutine(fn: Callable, monad_name: str, method_name: str):
             method=method_name,
             message=f"function '{_extract_name(fn)}' - async function can not be used"
         )
+
+
+_Pure = TypeVar("_Pure")
+_Cont = TypeVar("_Cont")
+
+
+def runner(chain, pure_cls: Type[_Pure], continuation_cls: Type[_Cont]) -> Generator[Any, _Pure, Any]:
+    entity, continuations = chain, list()
+    while True:
+        if isinstance(entity, continuation_cls):
+            continuations.append(entity.next)
+            entity = entity.current
+
+        elif isinstance(entity, pure_cls):
+            if len(continuations) == 0:
+                return entity.value
+            cont = continuations.pop()
+            entity = cont(entity.value)
+
+        else:
+            entity = yield entity
+
+
+_Stack: TypeAlias = List[Tuple[Callable[[Any], Any], Callable[[Any], Any]]]
+
+
+@dataclass(frozen=True, slots=True)
+class Yield:
+    entity: Any
+    last_success: Any
+    stack: _Stack
+
+
+@dataclass(frozen=True, slots=True)
+class Return:
+    last_success: Any
+    error: Optional[Exception]
+    faulty: Optional[Callable[[Any], Any]]
+    stack: _Stack
+
+
+def rebuild_runner(chain, pure_cls: Type[_Pure], continuation_cls: Type[_Cont]) -> Generator[Yield, _Pure, Return]:
+    """:raises MonadError: violations of the contract"""
+    entity, continuations, last_success = chain, list(), None
+    while True:
+        if isinstance(entity, continuation_cls):
+            continuations.append((entity.next, entity.next_origin))
+            entity = entity.current
+
+        elif isinstance(entity, pure_cls):
+            last_success = entity.value
+            if len(continuations) == 0:
+                return Return(last_success, None, None, continuations)
+            cont, cont_origin = continuations.pop()
+            try:
+                entity = cont(last_success)
+            except MonadError:
+                raise
+            except Exception as err:
+                continuations.append((cont, cont_origin))
+                return Return(last_success, err, cont_origin, continuations)
+
+        else:
+            entity = yield Yield(entity, last_success, continuations)

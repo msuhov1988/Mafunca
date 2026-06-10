@@ -1,21 +1,22 @@
 from dataclasses import dataclass
 import asyncio
+from contextlib import closing
 from collections.abc import Callable, Awaitable
 from typing import Generic, TypeVar, Any, Union, Optional, cast
 
-from mafunca._lazy_support import continuation_catch  # noqa
-from mafunca._lazy_support import async_prime_catch, async_prime_thread_catch  # noqa
+from mafunca.common.exceptions import MonadError
 from mafunca._lazy_support import panic_on_violations, panic_on_coroutine  # noqa
+from mafunca._lazy_support import runner, rebuild_runner, Yield, Return  # noqa
 from mafunca.result import Result, Ok, Err
 from mafunca.side_report import Report
 
 
 __all__ = [
     "AsyncSide",
-    "async_side_run",
-    "async_side_safe_run",
-    "async_side_rebuild_run",
-    "async_insist"
+    "side_run",
+    "side_safe_run",
+    "side_rebuild_run",
+    "insist"
 ]
 
 
@@ -88,44 +89,37 @@ class AsyncContinuation(AsyncSide[B]):
     next_origin: Callable[[Any], Union[B, AsyncSide[B]]]
 
 
-async def async_side_run(effect: AsyncSide[A]) -> A:
+async def _prime_exec(effect, timeout, to_thread):
+    coro = asyncio.to_thread(effect) if to_thread else effect()
+    if timeout is None:
+        return await coro
+    else:
+        async with asyncio.timeout(delay=timeout):
+            return await coro
+
+
+async def side_run(effect: AsyncSide[A]) -> A:
     """
         Simple asynchronous executor - just runs a chain.
         :raises MonadError: violations of the contract
     """
-    entity, continuations = effect, list()
-    while True:
-        if isinstance(entity, AsyncContinuation):
-            continuations.append(entity.next)
-            entity = entity.current
-
-        elif isinstance(entity, AsyncPrime):
-            if entity.timeout is None:
-                output = await entity.prime()
-            else:
-                async with asyncio.timeout(delay=entity.timeout):
-                    output = await entity.prime()
-            entity = AsyncPure(output)
-
-        elif isinstance(entity, AsyncPrimeThread):
-            if entity.timeout is None:
-                output = await asyncio.to_thread(entity.prime_thread)
-            else:
-                async with asyncio.timeout(delay=entity.timeout):
-                    output = await asyncio.to_thread(entity.prime_thread)
-            entity = AsyncPure(output)
-
-        elif isinstance(entity, AsyncPure):
-            if len(continuations) == 0:
-                return cast(A, entity.value)
-            cont = continuations.pop()
-            entity = cont(entity.value)
-
-        else:
-            panic_on_violations(AsyncSide.__name__, 'async_side_run', entity)
+    with closing(runner(effect, AsyncPure, AsyncContinuation)) as gen:
+        try:
+            entity = next(gen)
+            while True:
+                pure = None
+                if isinstance(entity, AsyncPrime):
+                    pure = await _prime_exec(entity.prime, entity.timeout, to_thread=False)
+                elif isinstance(entity, AsyncPrimeThread):
+                    pure = await _prime_exec(entity.prime_thread, entity.timeout, to_thread=True)
+                else:
+                    panic_on_violations(AsyncSide.__name__, 'async side runner method', entity)
+                entity = gen.send(AsyncPure(pure))
+        except StopIteration as finish:
+            return cast(A, finish.value)
 
 
-async def async_side_safe_run(effect: AsyncSide[A]) -> Result[A, Exception]:
+async def side_safe_run(effect: AsyncSide[A]) -> Result[A, Exception]:
     """
         Asynchronous executor - runs a chain, catching possible errors - heirs of 'Exception'
 
@@ -135,35 +129,13 @@ async def async_side_safe_run(effect: AsyncSide[A]) -> Result[A, Exception]:
 
         :raises MonadError: violations of the contract
     """
-    entity, continuations = effect, list()
-    while True:
-        if isinstance(entity, AsyncContinuation):
-            continuations.append(entity.next)
-            entity = entity.current
-
-        elif isinstance(entity, AsyncPrime):
-            result = await async_prime_catch(entity.prime, delay=entity.timeout)
-            if isinstance(result, Err):
-                return cast(Result[A, Exception], result)
-            entity = AsyncPure(result.value)
-
-        elif isinstance(entity, AsyncPrimeThread):
-            result = await async_prime_thread_catch(entity.prime_thread, delay=entity.timeout)
-            if isinstance(result, Err):
-                return cast(Result[A, Exception], result)
-            entity = AsyncPure(result.value)
-
-        elif isinstance(entity, AsyncPure):
-            if len(continuations) == 0:
-                return cast(Result[A, Exception], Ok(entity.value))
-            cont = continuations.pop()
-            result = continuation_catch(cont, entity.value)
-            if isinstance(result, Err):
-                return cast(Result[A, Exception], result)
-            entity = result.value
-
-        else:
-            panic_on_violations(AsyncSide.__name__, 'async_side_safe_run', entity)
+    try:
+        res = await side_run(effect)
+        return cast(Result[A, Exception], Ok(res))
+    except (MonadError, asyncio.CancelledError):
+        raise
+    except Exception as err:
+        return cast(Result[A, Exception], Err(err))
 
 
 def _rebuild_from_prime(prime, delay, continuations, to_thread: bool) -> AsyncSide:
@@ -186,7 +158,16 @@ def _rebuild_from_pure(pure_val, continuations) -> AsyncSide:
     return effect
 
 
-async def async_side_rebuild_run(effect: AsyncSide[A]) -> Report[Any, AsyncSide[A]]:
+async def _prime_catch(effect, timeout, to_thread):
+    try:
+        return Ok(await _prime_exec(effect, timeout, to_thread))
+    except (MonadError, asyncio.CancelledError):
+        raise
+    except Exception as error:
+        return Err(error)
+
+
+async def side_rebuild_run(effect: AsyncSide[A]) -> Report[Any, AsyncSide[A]]:
     """
         Asynchronous executor - runs a chain, catching possible errors - heirs of 'Exception'
 
@@ -198,49 +179,39 @@ async def async_side_rebuild_run(effect: AsyncSide[A]) -> Report[Any, AsyncSide[
 
         :raises MonadError: violations of the contract
     """
-    entity, continuations, last_success = effect, list(), None
-    while True:
-        if isinstance(entity, AsyncContinuation):
-            continuations.append((entity.next, entity.next_origin))
-            entity = entity.current
+    with closing(rebuild_runner(effect, AsyncPure, AsyncContinuation)) as gen:
+        try:
+            yld: Yield = next(gen)
+            entity, last_success, stack = yld.entity, yld.last_success, yld.stack
+            while True:
+                pure = None
+                if isinstance(entity, AsyncPrime):
+                    r = await _prime_catch(entity.prime, entity.timeout, to_thread=False)
+                    if isinstance(r, Err):
+                        rest = _rebuild_from_prime(entity.prime, entity.timeout, stack, to_thread=False)
+                        return cast(Report[Any, AsyncSide[A]], Report(last_success, r.error, entity.prime, rest))
+                    pure = r.value
 
-        elif isinstance(entity, AsyncPrime):
-            result = await async_prime_catch(entity.prime, delay=entity.timeout)
-            if isinstance(result, Err):
-                rest = _rebuild_from_prime(entity.prime, entity.timeout, continuations, to_thread=False)
-                return cast(
-                    Report[Any, AsyncSide[A]],
-                    Report(last_success, result.error, entity.prime, remainder=rest)
-                )
-            entity = AsyncPure(result.value)
+                elif isinstance(entity, AsyncPrimeThread):
+                    r = await _prime_catch(entity.prime_thread, entity.timeout, to_thread=True)
+                    if isinstance(r, Err):
+                        rest = _rebuild_from_prime(entity.prime_thread, entity.timeout, stack, to_thread=True)
+                        return cast(Report[Any, AsyncSide[A]], Report(last_success, r.error, entity.prime_thread, rest))
+                    pure = r.value
 
-        elif isinstance(entity, AsyncPrimeThread):
-            result = await async_prime_thread_catch(entity.prime_thread, delay=entity.timeout)
-            if isinstance(result, Err):
-                rest = _rebuild_from_prime(entity.prime_thread, entity.timeout, continuations, to_thread=True)
-                return cast(
-                    Report[Any, AsyncSide[A]],
-                    Report(last_success, result.error, entity.prime_thread, remainder=rest)
-                )
-            entity = AsyncPure(result.value)
+                else:
+                    panic_on_violations(AsyncSide.__name__, 'async side runner method', entity)
 
-        elif isinstance(entity, AsyncPure):
-            if len(continuations) == 0:
-                return cast(Report[Any, AsyncSide[A]], Report(entity.value, None, None, remainder=None))
-            last_success = entity.value
-            cont, cont_origin = continuations.pop()
-            result = continuation_catch(cont, last_success)
-            if isinstance(result, Err):
-                continuations.append((cont, cont_origin))
-                rest = _rebuild_from_pure(last_success, continuations)
-                return cast(Report[Any, AsyncSide[A]], Report(last_success, result.error, cont_origin, remainder=rest))
-            entity = result.value
-
-        else:
-            panic_on_violations(AsyncSide.__name__, 'async_side_rebuild_run', entity)
+                yld: Yield = gen.send(AsyncPure(pure))
+                entity, last_success, stack = yld.entity, yld.last_success, yld.stack
+        except StopIteration as finish:
+            rtn: Return = finish.value
+            last_success, error, faulty, stack = rtn.last_success, rtn.error, rtn.faulty, rtn.stack
+            rest = _rebuild_from_pure(last_success, stack)
+            return cast(Report[Any, AsyncSide[A]], Report(last_success, error, faulty, remainder=rest))
 
 
-async def async_insist(
+async def insist(
         effect: AsyncSide[A],
         attempts: int = 1,
         pause: Union[int, float] = 0
@@ -256,7 +227,7 @@ async def async_insist(
     """
     chain, report = effect, Report(None, None, None, effect)
     for _ in range(attempts):
-        report = await async_side_rebuild_run(chain)
+        report = await side_rebuild_run(chain)
         if not report.completed_successfully:
             chain = report.remainder
             await asyncio.sleep(pause)

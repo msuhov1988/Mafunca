@@ -5,6 +5,17 @@ from mafunca.side import Side, side_run, side_safe_run, side_rebuild_run, insist
 
 
 class TestSide(unittest.TestCase):
+    def test_pure_chain(self):
+        eff = Side.pure(0).map(lambda x: x + 1).map(lambda x: x + 1)
+        self.assertEqual(side_run(eff), 2)
+
+        res = side_safe_run(eff)
+        self.assertTrue(res.is_ok)
+        self.assertEqual(res.get_or_else(0), 2)
+
+        report = side_rebuild_run(eff)
+        self.assertTrue(report.completed_successfully)
+        self.assertEqual(report.last_successfully, 2)
 
     def test_basic_chain(self):
         eff = Side.pure(0).map(lambda x: x + 1).bind(lambda x: Side.effect(lambda: x + 1))
@@ -138,7 +149,7 @@ class TestSide(unittest.TestCase):
         self.assertFalse(rp.completed_successfully)
         self.assertEqual(rp.last_successfully, None)
 
-        rp = side_rebuild_run(rp.remainder)
+        rp = side_rebuild_run(rp.remainder)        
         self.assertTrue(rp.completed_successfully)
         self.assertEqual(rp.last_successfully, 100)
 

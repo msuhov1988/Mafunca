@@ -4,13 +4,25 @@ from time import sleep
 
 from mafunca.common.exceptions import MonadError
 from mafunca.side_async import AsyncSide
-from mafunca.side_async import async_side_run as side_run
-from mafunca.side_async import async_side_safe_run as side_safe_run
-from mafunca.side_async import async_side_rebuild_run as side_rebuild_run
-from mafunca.side_async import async_insist as insist
+from mafunca.side_async import side_run
+from mafunca.side_async import side_safe_run
+from mafunca.side_async import side_rebuild_run
+from mafunca.side_async import insist
 
 
 class TestAsyncSide(unittest.IsolatedAsyncioTestCase):
+    async def test_pure_chain(self):
+        eff = AsyncSide.pure(0).map(lambda x: x + 1).map(lambda x: x + 1)
+        self.assertEqual(await side_run(eff), 2)
+
+        res = await side_safe_run(eff)
+        self.assertTrue(res.is_ok)
+        self.assertEqual(res.get_or_else(0), 2)
+
+        report = await side_rebuild_run(eff)
+        self.assertTrue(report.completed_successfully)
+        self.assertEqual(report.last_successfully, 2)
+
     async def test_basic_chain(self):
         def plus(x):
 

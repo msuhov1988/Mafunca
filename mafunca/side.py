@@ -1,10 +1,12 @@
 from dataclasses import dataclass
+from contextlib import closing
 from time import sleep
 from collections.abc import Callable
 from typing import Generic, TypeVar, Any, Union, cast
 
-from mafunca._lazy_support import prime_catch, continuation_catch  # noqa
+from mafunca.common.exceptions import MonadError
 from mafunca._lazy_support import panic_on_violations, panic_on_coroutine  # noqa
+from mafunca._lazy_support import runner, rebuild_runner, Yield, Return  # noqa
 from mafunca.result import Result, Ok, Err
 from mafunca.side_report import Report
 
@@ -70,23 +72,16 @@ def side_run(effect: Side[A]) -> A:
         Simple synchronous executor - just runs a chain.
         :raises MonadError: violations of the contract
     """
-    entity, continuations = effect, list()
-    while True:
-        if isinstance(entity, Continuation):
-            continuations.append(entity.next)
-            entity = entity.current
-
-        elif isinstance(entity, Prime):
-            entity = Pure(entity.prime())
-
-        elif isinstance(entity, Pure):
-            if len(continuations) == 0:
-                return cast(A, entity.value)
-            cont = continuations.pop()
-            entity = cont(entity.value)
-
-        else:
-            panic_on_violations(Side.__name__, 'side_run', entity)
+    with closing(runner(effect, Pure, Continuation)) as gen:
+        try:
+            entity = next(gen)
+            while True:
+                if isinstance(entity, Prime):
+                    entity = gen.send(Pure(entity.prime()))
+                else:
+                    panic_on_violations(Side.__name__, 'side runner method', entity)
+        except StopIteration as finish:
+            return cast(A, finish.value)
 
 
 def side_safe_run(effect: Side[A]) -> Result[A, Exception]:
@@ -96,29 +91,12 @@ def side_safe_run(effect: Side[A]) -> Result[A, Exception]:
         MonadError is not suppressed.
         :raises MonadError: violations of the contract
     """
-    entity, continuations = effect, list()
-    while True:
-        if isinstance(entity, Continuation):
-            continuations.append(entity.next)
-            entity = entity.current
-
-        elif isinstance(entity, Prime):
-            result = prime_catch(entity.prime)
-            if isinstance(result, Err):
-                return cast(Result[A, Exception], result)
-            entity = Pure(result.value)
-
-        elif isinstance(entity, Pure):
-            if len(continuations) == 0:
-                return cast(Result[A, Exception], Ok(entity.value))
-            cont = continuations.pop()
-            result = continuation_catch(cont, entity.value)
-            if isinstance(result, Err):
-                return cast(Result[A, Exception], result)
-            entity = result.value
-
-        else:
-            panic_on_violations(Side.__name__, 'side_safe_run', entity)
+    try:
+        return cast(Result[A, Exception], Ok(side_run(effect)))
+    except MonadError:
+        raise
+    except Exception as err:
+        return cast(Result[A, Exception], Err(err))
 
 
 def _rebuild_from_prime(prime, continuations) -> Side:
@@ -143,40 +121,35 @@ def _rebuild_from_pure(pure_val, continuations) -> Side:
 
 def side_rebuild_run(effect: Side[A]) -> Report[Any, Side[A]]:
     """
-        Synchronous executor - runs a chain, catching possible errors - heirs of 'Exception'.
+       Synchronous executor - runs a chain, catching possible errors - heirs of 'Exception'.
 
-        Returns a special object that contains the last successful result, caught exception, and the unfinished steps.
+       Returns a special object that contains the last successful result, caught exception, and the unfinished steps.
 
-        MonadError is not suppressed.
-        :raises MonadError: violations of the contract
+       MonadError is not suppressed.
+       :raises MonadError: violations of the contract
     """
-    entity, continuations, last_success = effect, list(), None
-    while True:
-        if isinstance(entity, Continuation):
-            continuations.append((entity.next, entity.next_origin))
-            entity = entity.current
-
-        elif isinstance(entity, Prime):
-            result = prime_catch(entity.prime)
-            if isinstance(result, Err):
-                rest = _rebuild_from_prime(entity.prime, continuations)
-                return cast(Report[Any, Side[A]], Report(last_success, result.error, entity.prime, remainder=rest))
-            entity = Pure(result.value)
-
-        elif isinstance(entity, Pure):
-            if len(continuations) == 0:
-                return cast(Report[Any, Side[A]], Report(entity.value, None, None, remainder=None))
-            last_success = entity.value
-            cont, cont_origin = continuations.pop()
-            result = continuation_catch(cont, last_success)
-            if isinstance(result, Err):
-                continuations.append((cont, cont_origin))
-                rest = _rebuild_from_pure(last_success, continuations)
-                return cast(Report[Any, Side[A]], Report(last_success, result.error, cont_origin, remainder=rest))
-            entity = result.value
-
-        else:
-            panic_on_violations(Side.__name__, 'side_rebuild_run', entity)
+    with closing(rebuild_runner(effect, Pure, Continuation)) as gen:
+        try:
+            yld: Yield = next(gen)
+            entity, last_success, stack = yld.entity, yld.last_success, yld.stack
+            while True:
+                if isinstance(entity, Prime):
+                    try:
+                        pure_from_prime = Pure(entity.prime())
+                    except MonadError:
+                        raise
+                    except Exception as error:
+                        rest = _rebuild_from_prime(entity.prime, stack)
+                        return cast(Report[Any, Side[A]], Report(last_success, error, entity.prime, remainder=rest))
+                    yld: Yield = gen.send(pure_from_prime)
+                    entity, last_success, stack = yld.entity, yld.last_success, yld.stack
+                else:
+                    panic_on_violations(Side.__name__, 'side runner method', entity)
+        except StopIteration as finish:
+            rtn: Return = finish.value
+            last_success, error, faulty, stack = rtn.last_success, rtn.error, rtn.faulty, rtn.stack
+            rest = _rebuild_from_pure(last_success, stack)
+            return cast(Report[Any, Side[A]], Report(last_success, error, faulty, remainder=rest))
 
 
 def insist(effect: Side[A], attempts: int = 1, pause: Union[int, float] = 0) -> Report[Any, Side[A]]:
