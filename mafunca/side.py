@@ -139,7 +139,7 @@ def side_rebuild_run(effect: Side[A]) -> Report[Any, Side[A]]:
                     except MonadError:
                         raise
                     except Exception as error:
-                        rest = _rebuild_from_prime(entity.prime, stack)
+                        rest = _rebuild_from_prime(entity.prime, stack.copy())
                         return cast(Report[Any, Side[A]], Report(last_success, error, entity.prime, remainder=rest))
                     yld: Yield = gen.send(pure_from_prime)
                     entity, last_success, stack = yld.entity, yld.last_success, yld.stack
@@ -148,7 +148,7 @@ def side_rebuild_run(effect: Side[A]) -> Report[Any, Side[A]]:
         except StopIteration as finish:
             rtn: Return = finish.value
             last_success, error, faulty, stack = rtn.last_success, rtn.error, rtn.faulty, rtn.stack
-            rest = _rebuild_from_pure(last_success, stack)
+            rest = _rebuild_from_pure(last_success, stack.copy())
             return cast(Report[Any, Side[A]], Report(last_success, error, faulty, remainder=rest))
 
 

@@ -188,14 +188,14 @@ async def side_rebuild_run(effect: AsyncSide[A]) -> Report[Any, AsyncSide[A]]:
                 if isinstance(entity, AsyncPrime):
                     r = await _prime_catch(entity.prime, entity.timeout, to_thread=False)
                     if isinstance(r, Err):
-                        rest = _rebuild_from_prime(entity.prime, entity.timeout, stack, to_thread=False)
+                        rest = _rebuild_from_prime(entity.prime, entity.timeout, stack.copy(), to_thread=False)
                         return cast(Report[Any, AsyncSide[A]], Report(last_success, r.error, entity.prime, rest))
                     pure = r.value
 
                 elif isinstance(entity, AsyncPrimeThread):
                     r = await _prime_catch(entity.prime_thread, entity.timeout, to_thread=True)
                     if isinstance(r, Err):
-                        rest = _rebuild_from_prime(entity.prime_thread, entity.timeout, stack, to_thread=True)
+                        rest = _rebuild_from_prime(entity.prime_thread, entity.timeout, stack.copy(), to_thread=True)
                         return cast(Report[Any, AsyncSide[A]], Report(last_success, r.error, entity.prime_thread, rest))
                     pure = r.value
 
@@ -207,7 +207,7 @@ async def side_rebuild_run(effect: AsyncSide[A]) -> Report[Any, AsyncSide[A]]:
         except StopIteration as finish:
             rtn: Return = finish.value
             last_success, error, faulty, stack = rtn.last_success, rtn.error, rtn.faulty, rtn.stack
-            rest = _rebuild_from_pure(last_success, stack)
+            rest = _rebuild_from_pure(last_success, stack.copy())
             return cast(Report[Any, AsyncSide[A]], Report(last_success, error, faulty, remainder=rest))
 
 
