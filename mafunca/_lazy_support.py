@@ -8,6 +8,8 @@ from mafunca.common.exceptions import MonadError
 
 def panic_on_violations(monad_name: str, runner_name: str, entity):
     """
+        Internal.
+        Panic when a contract is violated - improper use of binding methods
         :raises MonadError: unknown node.
     """
     raise MonadError(
@@ -23,6 +25,7 @@ def _extract_name(func) -> str:
 
 def panic_on_coroutine(fn: Callable, monad_name: str, method_name: str):
     """
+       Internal.
        Panic when the monadic contract is violated - function must be sync.
        :raises MonadError: async function can not be used
     """
@@ -42,6 +45,10 @@ _Cont = TypeVar("_Cont")
 
 
 def runner(chain, pure_cls: Type[_Pure], continuation_cls: Type[_Cont]) -> Generator[Any, _Pure, Any]:
+    """
+        Internal.
+        A general part that operates on pure nodes and sends side operations outside
+    """
     entity, continuations = chain, list()
     while True:
         if isinstance(entity, continuation_cls):
@@ -77,7 +84,14 @@ class Return:
 
 
 def rebuild_runner(chain, pure_cls: Type[_Pure], continuation_cls: Type[_Cont]) -> Generator[Yield, _Pure, Return]:
-    """:raises MonadError: violations of the contract"""
+    """
+        Internal.
+        A general part that operates on pure nodes and sends side operations outside.
+
+        Catch errors.
+
+        MonadError is not suppressed.
+    """
     entity, continuations, last_success = chain, list(), None
     while True:
         if isinstance(entity, continuation_cls):
