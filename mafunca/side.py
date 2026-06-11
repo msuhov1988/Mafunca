@@ -1,27 +1,20 @@
 from dataclasses import dataclass
-from contextlib import closing
-from time import sleep
 from collections.abc import Callable
-from typing import Generic, TypeVar, Any, Union, cast
+from typing import Generic, TypeVar, Any, Union
 
-from mafunca.common.exceptions import MonadError
-from mafunca._lazy_support import panic_on_violations, panic_on_coroutine  # noqa
-from mafunca._lazy_support import runner, rebuild_runner, Yield, Return  # noqa
+from mafunca.specials import panic_on_impure
+from mafunca._lazy_support import panic_on_coroutine  # noqa
 from mafunca.result import Result, Ok, Err
-from mafunca.side_report import Report
 
 
 __all__ = [
     "Side",
-    "side_run",
-    "side_safe_run",
-    "side_rebuild_run",
-    "insist"
 ]
 
 
 A = TypeVar("A")
 B = TypeVar("B")
+E = TypeVar("E")
 
 
 class Side(Generic[A]):
@@ -30,141 +23,125 @@ class Side(Generic[A]):
         Lazy: not executed until the corresponding executor is called.
     """
     def map(self, fn: Callable[[A], B]) -> 'Side[B]':
-        """:raises MonadError: coroutine functions are not allowed"""
+        """:raises MonadError: coroutine or marked as impure functions are not allowed"""
         panic_on_coroutine(fn, self.__class__.__name__, 'map')
-        return Continuation(self, lambda a: Pure(fn(a)), fn)
+        panic_on_impure(self.__class__.__name__, 'map', fn)
+        return _Continuation(self, lambda a: _Pure(fn(a)), fn)
 
     def bind(self, fn: Callable[[A], 'Side[B]']) -> 'Side[B]':
-        """:raises MonadError: coroutine functions are not allowed"""
+        """:raises MonadError: coroutine or marked as impure functions are not allowed"""
         panic_on_coroutine(fn, self.__class__.__name__, 'bind')
-        return Continuation(self, fn, fn)
+        panic_on_impure(self.__class__.__name__, 'bind', fn)
+        return _Continuation(self, fn, fn)
 
     @staticmethod
     def pure(value: A) -> 'Side[A]':
-        return Pure(value)
+        return _Pure(value)
 
     @staticmethod
     def effect(fn: Callable[[], A]) -> 'Side[A]':
         """:raises MonadError: coroutine functions are not allowed"""
         panic_on_coroutine(fn, Side.__name__, 'effect')
-        return Prime(fn)
+        return _Effect(fn)
 
+
+#  IMPORTANT
+#  All nodes except primary effects in all lazy monads must have the same attribute names
+#  Code-level convention
 
 @dataclass(frozen=True, slots=True, repr=True)
-class Pure(Side[A]):
+class _Pure(Side[A]):
     value: A
 
 
 @dataclass(frozen=True, slots=True, repr=True)
-class Prime(Side[A]):
+class _Effect(Side[A]):
     prime: Callable[[], A]
 
 
 @dataclass(frozen=True, slots=True, repr=True)
-class Continuation(Side[B]):
+class _Continuation(Side[B]):
     current: Side[Any]
     next: Callable[[Any], Side[B]]
-    next_origin: Callable[[Any], Union[B, Side[B]]]
+    next_origin: Callable[[Any], Union[Side[B], B]]
 
 
-def side_run(effect: Side[A]) -> A:
+# all methods in transformers are implemented without relying on the methods of underlying monads
+# so as not to duplicate panics on impure functions
+
+class TSideR(Generic[A, E]):
     """
-        Simple synchronous executor - just runs a chain.
-        :raises MonadError: violations of the contract
+        A transformer for SYNCHRONOUS ONLY effects.
+
+        It is built over a value of the form Result[A,E] or an effect of the form Callable[[], Result[A, E]].
+
+        Lazy: not executed until the corresponding executor is called.
     """
-    with closing(runner(effect, Pure, Continuation)) as gen:
-        try:
-            entity = next(gen)
-            while True:
-                if isinstance(entity, Prime):
-                    entity = gen.send(Pure(entity.prime()))
-                else:
-                    panic_on_violations(Side.__name__, 'side runner method', entity)
-        except StopIteration as finish:
-            return cast(A, finish.value)
+    def map(self, fn: Callable[[A], B]) -> 'TSideR[B, E]':
+        """:raises MonadError: coroutine or marked as impure functions are not allowed"""
+        panic_on_coroutine(fn, self.__class__.__name__, 'map')
+        panic_on_impure(self.__class__.__name__, 'map', fn)
+
+        def continuation(arg: Result[A, E]) -> 'TSideR[B, E]':
+            if isinstance(arg, Err):
+                return _TPureR(arg)
+            return _TPureR(Ok(fn(arg.value)))
+
+        return _TContinuationR(self, continuation, fn)
+
+    def map_result(self, fn: Callable[[A], Result[B, E]]) -> 'TSideR[B, E]':
+        """:raises MonadError: coroutine or marked as impure functions are not allowed"""
+        panic_on_coroutine(fn, self.__class__.__name__, 'map_result')
+        panic_on_impure(self.__class__.__name__, 'map_result', fn)
+
+        def continuation(arg: Result[A, E]) -> 'TSideR[B, E]':
+            if isinstance(arg, Err):
+                return _TPureR(arg)
+            return _TPureR(fn(arg.value))
+
+        return _TContinuationR(self, continuation, fn)
+
+    def bind(self, fn: Callable[[A], 'TSideR[B, E]']) -> 'TSideR[B, E]':
+        """:raises MonadError: coroutine or marked as impure functions are not allowed"""
+        panic_on_coroutine(fn, self.__class__.__name__, 'bind')
+        panic_on_impure(self.__class__.__name__, 'bind', fn)
+        return _TContinuationR(self, fn, fn)
+
+    @staticmethod
+    def pure(value: A) -> 'TSideR[A, E]':
+        return _TPureR(Ok(value))
+
+    @staticmethod
+    def pure_error(error: E) -> 'TSideR[A, E]':
+        return _TPureR(Err(error))
+
+    @staticmethod
+    def wrap_result(value: Result[A, E]) -> 'TSideR[A, E]':
+        return _TPureR(value)
+
+    @staticmethod
+    def effect(fn: Callable[[], Result[A, E]]) -> 'TSideR[A, E]':
+        """:raises MonadError: coroutine functions are not allowed"""
+        panic_on_coroutine(fn, TSideR.__name__, 'effect')
+        return _TEffectR(fn)
 
 
-def side_safe_run(effect: Side[A]) -> Result[A, Exception]:
-    """
-        Synchronous executor - runs a chain, catching possible errors - heirs of 'Exception'
+#  IMPORTANT
+#  All nodes except primary effects in all lazy monads must have the same attribute names
+#  Code-level convention
 
-        MonadError is not suppressed.
-        :raises MonadError: violations of the contract
-    """
-    try:
-        return cast(Result[A, Exception], Ok(side_run(effect)))
-    except MonadError:
-        raise
-    except Exception as err:
-        return cast(Result[A, Exception], Err(err))
+@dataclass(frozen=True, slots=True, repr=True)
+class _TPureR(TSideR[A, E]):
+    value: Result[A, E]
 
 
-def _rebuild_from_prime(prime, continuations) -> Side:
-    effect = Side.effect(prime)
-
-    while len(continuations) > 0:
-        cont, cont_origin = continuations.pop()
-        effect = Continuation(effect, cont, cont_origin)
-
-    return effect
+@dataclass(frozen=True, slots=True, repr=True)
+class _TEffectR(TSideR[A, E]):
+    prime: Callable[[], Result[A, E]]
 
 
-def _rebuild_from_pure(pure_val, continuations) -> Side:
-    effect = Side.pure(pure_val)
-
-    while len(continuations) > 0:
-        cont, cont_origin = continuations.pop()
-        effect = Continuation(effect, cont, cont_origin)
-
-    return effect
-
-
-def side_rebuild_run(effect: Side[A]) -> Report[Any, Side[A]]:
-    """
-       Synchronous executor - runs a chain, catching possible errors - heirs of 'Exception'.
-
-       Returns a special object that contains the last successful result, caught exception, and the unfinished steps.
-
-       MonadError is not suppressed.
-       :raises MonadError: violations of the contract
-    """
-    with closing(rebuild_runner(effect, Pure, Continuation)) as gen:
-        try:
-            yld: Yield = next(gen)
-            entity, last_success, stack = yld.entity, yld.last_success, yld.stack
-            while True:
-                if isinstance(entity, Prime):
-                    try:
-                        pure_from_prime = Pure(entity.prime())
-                    except MonadError:
-                        raise
-                    except Exception as error:
-                        rest = _rebuild_from_prime(entity.prime, stack.copy())
-                        return cast(Report[Any, Side[A]], Report(last_success, error, entity.prime, remainder=rest))
-                    yld: Yield = gen.send(pure_from_prime)
-                    entity, last_success, stack = yld.entity, yld.last_success, yld.stack
-                else:
-                    panic_on_violations(Side.__name__, 'side runner method', entity)
-        except StopIteration as finish:
-            rtn: Return = finish.value
-            last_success, error, faulty, stack = rtn.last_success, rtn.error, rtn.faulty, rtn.stack
-            rest = _rebuild_from_pure(last_success, stack.copy())
-            return cast(Report[Any, Side[A]], Report(last_success, error, faulty, remainder=rest))
-
-
-def insist(effect: Side[A], attempts: int = 1, pause: Union[int, float] = 0) -> Report[Any, Side[A]]:
-    """
-        Makes 'attempts' to execute an effect with 'pause' intervals between them
-
-        MonadError is not suppressed.
-        :raises MonadError: violations of the contract
-    """
-    chain, report = effect, Report(None, None, None, effect)
-    for _ in range(attempts):
-        report = side_rebuild_run(chain)
-        if not report.completed_successfully:
-            chain = report.remainder
-            sleep(pause)
-            continue
-        break
-    return cast(Report[Any, Side[A]], report)
+@dataclass(frozen=True, slots=True, repr=True)
+class _TContinuationR(TSideR[B, E]):
+    current: TSideR[Any, E]
+    next: Callable[[Any], TSideR[B, E]]
+    next_origin: Callable[[Any], Union[TSideR[B, E], Result[B, E], B]]

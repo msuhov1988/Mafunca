@@ -1,7 +1,6 @@
 from dataclasses import dataclass
-
 from collections.abc import Callable
-from typing import Generic, TypeVar, Optional
+from typing import TypeVar, Generic, Optional
 
 
 _LastSuccess = TypeVar("_LastSuccess")

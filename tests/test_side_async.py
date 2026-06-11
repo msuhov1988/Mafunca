@@ -3,11 +3,12 @@ import asyncio
 from time import sleep
 
 from mafunca.common.exceptions import MonadError
+from mafunca.specials import impure
 from mafunca.side_async import AsyncSide
-from mafunca.side_async import side_run
-from mafunca.side_async import side_safe_run
-from mafunca.side_async import side_rebuild_run
-from mafunca.side_async import insist
+from mafunca.side_async_runners import run_async as side_run
+from mafunca.side_async_runners import run_safe_async as side_safe_run
+from mafunca.side_async_runners import run_rebuild_async as side_rebuild_run
+from mafunca.side_async_runners import insist_async as insist
 
 
 class TestAsyncSide(unittest.IsolatedAsyncioTestCase):
@@ -102,6 +103,26 @@ class TestAsyncSide(unittest.IsolatedAsyncioTestCase):
             AsyncSide.pure(10).bind(plus_bind)  # noqa
         with self.assertRaises(MonadError):
             AsyncSide.effect_to_thread(plus_thread)
+
+    async def test_impure_violation(self):
+        @impure
+        def plus_map(x):
+            return x + 1
+
+        @impure
+        def plus_bind(x):
+            return AsyncSide.pure(x + 1)
+
+        async def plus_prime():
+            return 1
+
+        with self.assertRaises(MonadError):
+            AsyncSide.pure(10).map(plus_map)
+        with self.assertRaises(MonadError):
+            AsyncSide.pure(10).bind(plus_bind)  # noqa
+
+        eff = AsyncSide.effect(impure(plus_prime)).map(lambda x: x + 1)
+        self.assertEqual(await side_run(eff), 2)
 
     async def test_delay(self):
         async def fn():
@@ -446,6 +467,21 @@ class TestAsyncSide(unittest.IsolatedAsyncioTestCase):
         rp = await insist(rp.remainder, 10)
         self.assertEqual(rp.last_successfully, 36)
         self.assertEqual(kit, [2, 1, 0])
+
+    async def test_bad_side_effect(self):
+        g = 0
+
+        async def effect():
+            nonlocal g
+            g += 1
+            if g < 2:
+                raise TypeError
+
+        eff = AsyncSide.effect(effect).bind(lambda _: AsyncSide.effect(effect))
+        rp = await insist(eff, attempts=1)
+        rp = await insist(rp.remainder, attempts=1)
+        self.assertTrue(rp.completed_successfully)
+        self.assertEqual(g, 3)
 
 
 if __name__ == '__main__':

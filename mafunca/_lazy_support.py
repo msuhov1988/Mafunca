@@ -46,8 +46,13 @@ _Cont = TypeVar("_Cont")
 
 def runner(chain, pure_cls: Type[_Pure], continuation_cls: Type[_Cont]) -> Generator[Any, _Pure, Any]:
     """
-        Internal.
-        A general part that operates on pure nodes and sends side operations outside
+        Internal. Knows how to handle Pure and Continuation nodes.
+
+        Pure - contains a value for the 'value' attribute.
+
+        Continuation - contains pure synchronous functions by attributes: 'current', 'next', 'next_origin'.
+
+        Other nodes gives to the calling code.
     """
     entity, continuations = chain, list()
     while True:
@@ -85,12 +90,15 @@ class Return:
 
 def rebuild_runner(chain, pure_cls: Type[_Pure], continuation_cls: Type[_Cont]) -> Generator[Yield, _Pure, Return]:
     """
-        Internal.
-        A general part that operates on pure nodes and sends side operations outside.
+        Internal. Knows how to handle Pure and Continuation nodes.
 
-        Catch errors.
+        Pure - contains a value for the 'value' attribute.
 
-        MonadError is not suppressed.
+        Continuation - contains pure synchronous functions by attributes: 'current', 'next', 'next_origin'.
+
+        Other nodes gives to the calling code.
+
+        Catches errors, but 'MonadError' is not suppressed.
     """
     entity, continuations, last_success = chain, list(), None
     while True:
@@ -113,3 +121,17 @@ def rebuild_runner(chain, pure_cls: Type[_Pure], continuation_cls: Type[_Cont]) 
 
         else:
             entity = yield Yield(entity, last_success, continuations)
+
+
+def rebuild_from(first_effect, continuations: _Stack, continuation_cls: Type[_Cont]):
+    """
+        Internal. Restores the chain of effects by the first effect and stack of continuations.
+
+        Continuation - contains pure synchronous functions by attributes: 'current', 'next', 'next_origin'.
+    """
+    effect = first_effect
+    stack = continuations.copy()
+    while len(stack) > 0:
+        cont, cont_origin = stack.pop()
+        effect = continuation_cls(current=effect, next=cont, next_origin=cont_origin)
+    return effect

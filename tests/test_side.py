@@ -1,42 +1,44 @@
 import unittest
 
 from mafunca.common.exceptions import MonadError
-from mafunca.side import Side, side_run, side_safe_run, side_rebuild_run, insist
+from mafunca.specials import impure
+from mafunca.side import Side
+from mafunca.side_runners import run, run_safe, run_rebuild, insist
 
 
 class TestSide(unittest.TestCase):
     def test_pure_chain(self):
         eff = Side.pure(0).map(lambda x: x + 1).map(lambda x: x + 1)
-        self.assertEqual(side_run(eff), 2)
+        self.assertEqual(run(eff), 2)
 
-        res = side_safe_run(eff)
+        res = run_safe(eff)
         self.assertTrue(res.is_ok)
         self.assertEqual(res.get_or_else(0), 2)
 
-        report = side_rebuild_run(eff)
+        report = run_rebuild(eff)
         self.assertTrue(report.completed_successfully)
         self.assertEqual(report.last_successfully, 2)
 
     def test_basic_chain(self):
         eff = Side.pure(0).map(lambda x: x + 1).bind(lambda x: Side.effect(lambda: x + 1))
-        self.assertEqual(side_run(eff), 2)
+        self.assertEqual(run(eff), 2)
 
-        res = side_safe_run(eff)
+        res = run_safe(eff)
         self.assertTrue(res.is_ok)
         self.assertEqual(res.get_or_else(0), 2)
 
-        report = side_rebuild_run(eff)
+        report = run_rebuild(eff)
         self.assertTrue(report.completed_successfully)
         self.assertEqual(report.last_successfully, 2)
 
         eff = Side.effect(lambda: 0).map(lambda x: x + 1).bind(lambda x: Side.pure(x + 1))
-        self.assertEqual(side_run(eff), 2)
+        self.assertEqual(run(eff), 2)
 
-        res = side_safe_run(eff)
+        res = run_safe(eff)
         self.assertTrue(res.is_ok)
         self.assertEqual(res.get_or_else(0), 2)
 
-        report = side_rebuild_run(eff)
+        report = run_rebuild(eff)
         self.assertTrue(report.completed_successfully)
         self.assertEqual(report.last_successfully, 2)
 
@@ -45,11 +47,11 @@ class TestSide(unittest.TestCase):
             raise TypeError
 
         eff = Side.pure(0).map(lambda _: raiser()).bind(lambda x: Side.effect(lambda: x + 1))
-        res = side_safe_run(eff)
+        res = run_safe(eff)
         self.assertTrue(res.is_error)
         self.assertIsInstance(res.error, TypeError)
 
-        report = side_rebuild_run(eff)
+        report = run_rebuild(eff)
         self.assertFalse(report.completed_successfully)
         self.assertEqual(report.last_successfully, 0)
         self.assertIsInstance(report.exception, TypeError)
@@ -57,18 +59,55 @@ class TestSide(unittest.TestCase):
     def test_contract_violation(self):
         eff = Side.effect(lambda: 10).bind(lambda x: x + 1)
         with self.assertRaises(MonadError):
-            side_run(eff)
+            run(eff)
         with self.assertRaises(MonadError):
-            side_safe_run(eff)
+            run_safe(eff)
         with self.assertRaises(MonadError):
-            side_rebuild_run(eff)
+            run_rebuild(eff)
+
+    def test_func_type_violation(self):
+        async def plus_map(x):
+            return x + 1
+
+        async def plus_bind(x):
+            return Side.pure(x + 1)
+
+        async def plus_prime():
+            return 1
+
+        with self.assertRaises(MonadError):
+            Side.pure(10).map(plus_map)
+        with self.assertRaises(MonadError):
+            Side.pure(10).bind(plus_bind)  # noqa
+        with self.assertRaises(MonadError):
+            Side.effect(plus_prime).map(lambda x: x + 1)
+
+    def test_impure_violation(self):
+        @impure
+        def plus_map(x):
+            return x + 1
+
+        @impure
+        def plus_bind(x):
+            return Side.pure(x + 1)
+
+        def plus_prime():
+            return 1
+
+        with self.assertRaises(MonadError):
+            Side.pure(10).map(plus_map)
+        with self.assertRaises(MonadError):
+            Side.pure(10).bind(plus_bind)  # noqa
+
+        eff = Side.effect(impure(plus_prime)).map(lambda x: x + 1)
+        self.assertEqual(run(eff), 2)
 
     def test_rebuild_errors(self):
         def raiser():
             raise TypeError('error')
 
         eff = Side.effect(raiser).map(lambda v: v + 1).map(lambda v: v + 1)
-        rp = side_rebuild_run(eff)
+        rp = run_rebuild(eff)
         self.assertIs(rp.faulty, raiser)
 
         err = rp.exception
@@ -81,13 +120,13 @@ class TestSide(unittest.TestCase):
             return Side.effect(lambda: val ** 2).map(lambda v: v + 1).map(lambda v: v + 1)
 
         eff = Side.pure(5).map(lambda v: v + 5).bind(inner_chain)
-        self.assertEqual(side_run(eff), 102)
+        self.assertEqual(run(eff), 102)
 
-        res = side_safe_run(eff)
+        res = run_safe(eff)
         self.assertTrue(res.is_ok)
         self.assertEqual(res.get_or_else(0), 102)
 
-        report = side_rebuild_run(eff)
+        report = run_rebuild(eff)
         self.assertTrue(report.completed_successfully)
         self.assertEqual(report.last_successfully, 102)
 
@@ -100,13 +139,13 @@ class TestSide(unittest.TestCase):
 
         eff = Side.pure(5).map(lambda v: v + 5).bind(inner_chain)
         with self.assertRaises(TypeError):
-            side_run(eff)
+            run(eff)
 
-        res = side_safe_run(eff)
+        res = run_safe(eff)
         self.assertTrue(res.is_error)
         self.assertIsInstance(res.error, TypeError)
 
-        rp = side_rebuild_run(eff)
+        rp = run_rebuild(eff)
         self.assertFalse(rp.completed_successfully)
         self.assertEqual(rp.last_successfully, 10)
         self.assertIsInstance(rp.exception, TypeError)
@@ -122,7 +161,7 @@ class TestSide(unittest.TestCase):
             return Side.effect(lambda: val ** 2).bind(inner_second_chain)
 
         eff = Side.pure(5).map(lambda v: v + 5).bind(inner_first_chain)
-        rp = side_rebuild_run(eff)
+        rp = run_rebuild(eff)
         self.assertFalse(rp.completed_successfully)
         self.assertEqual(rp.last_successfully, 100)
         self.assertIsInstance(rp.exception, TypeError)
@@ -141,15 +180,15 @@ class TestSide(unittest.TestCase):
             return Side.effect(inner)
 
         eff = Side.pure(10).bind(plus)
-        rp = side_rebuild_run(eff)
+        rp = run_rebuild(eff)
         self.assertFalse(rp.completed_successfully)
         self.assertEqual(rp.last_successfully, 10)
 
-        rp = side_rebuild_run(rp.remainder)
+        rp = run_rebuild(rp.remainder)
         self.assertFalse(rp.completed_successfully)
         self.assertEqual(rp.last_successfully, None)
 
-        rp = side_rebuild_run(rp.remainder)        
+        rp = run_rebuild(rp.remainder)
         self.assertTrue(rp.completed_successfully)
         self.assertEqual(rp.last_successfully, 100)
 
@@ -167,15 +206,15 @@ class TestSide(unittest.TestCase):
             return val ** 2
 
         eff = Side.pure(10).map(plus)
-        rp = side_rebuild_run(eff)
+        rp = run_rebuild(eff)
         self.assertFalse(rp.completed_successfully)
         self.assertEqual(rp.last_successfully, 10)
 
-        rp = side_rebuild_run(rp.remainder)
+        rp = run_rebuild(rp.remainder)
         self.assertFalse(rp.completed_successfully)
         self.assertEqual(rp.last_successfully, 10)
 
-        rp = side_rebuild_run(rp.remainder)
+        rp = run_rebuild(rp.remainder)
         self.assertTrue(rp.completed_successfully)
         self.assertEqual(rp.last_successfully, 100)
 
@@ -199,15 +238,15 @@ class TestSide(unittest.TestCase):
             return Side.pure(o).bind(plus).bind(lambda v: Side.pure(v + 1))
 
         eff = Side.pure(10).map(lambda v: v + 10).bind(inner).map(lambda v: v + 1)
-        rp = side_rebuild_run(eff)
+        rp = run_rebuild(eff)
         self.assertFalse(rp.completed_successfully)
         self.assertEqual(rp.last_successfully, 20)
 
-        rp = side_rebuild_run(rp.remainder)
+        rp = run_rebuild(rp.remainder)
         self.assertFalse(rp.completed_successfully)
         self.assertEqual(rp.last_successfully, None)
 
-        rp = side_rebuild_run(rp.remainder)
+        rp = run_rebuild(rp.remainder)
         self.assertTrue(rp.completed_successfully)
         self.assertEqual(rp.last_successfully, 402)
 
@@ -229,15 +268,15 @@ class TestSide(unittest.TestCase):
             return Side.pure(o).map(plus).bind(lambda v: Side.effect(lambda: v + 1))
 
         eff = Side.pure(10).map(lambda v: v + 10).bind(inner).map(lambda v: v + 1)
-        rp = side_rebuild_run(eff)
+        rp = run_rebuild(eff)
         self.assertFalse(rp.completed_successfully)
         self.assertEqual(rp.last_successfully, 20)
 
-        rp = side_rebuild_run(rp.remainder)
+        rp = run_rebuild(rp.remainder)
         self.assertFalse(rp.completed_successfully)
         self.assertEqual(rp.last_successfully, 20)
 
-        rp = side_rebuild_run(rp.remainder)
+        rp = run_rebuild(rp.remainder)
         self.assertTrue(rp.completed_successfully)
         self.assertEqual(rp.last_successfully, 402)
 
@@ -317,6 +356,21 @@ class TestSide(unittest.TestCase):
         rp = insist(rp.remainder, 10)
         self.assertEqual(rp.last_successfully, 36)
         self.assertEqual(kit, [2, 1, 0])
+
+    def test_bad_side_effect(self):
+        g = 0
+
+        def effect():
+            nonlocal g
+            g += 1
+            if g < 2:
+                raise TypeError
+
+        eff = Side.effect(effect).bind(lambda _: Side.effect(effect))
+        rp = insist(eff, attempts=1)
+        rp = insist(rp.remainder, attempts=1)
+        self.assertTrue(rp.completed_successfully)
+        self.assertEqual(g, 3)
 
 
 if __name__ == '__main__':
