@@ -4,7 +4,6 @@ from functools import wraps
 from typing import TypeVar, Union
 
 from mafunca.common.exceptions import CurryBadFunctionError, CurryBadArguments
-from mafunca.specials import is_impure, impure
 
 
 __all__ = [
@@ -22,55 +21,56 @@ D = TypeVar("D")
 R = TypeVar("R")
 
 
-def _wrap_and_check_impure(wrapper, fn):
-    wrapper_new = wraps(fn)(wrapper)
-    if is_impure(fn):
-        wrapper_new = impure(wrapper_new)
-    return wrapper_new
-
-
 def curry2(fn: Callable[[A, B], R]) -> Callable[[A], Callable[[B], R]]:
     """
-        Currying decorator for a function with two POSITIONAL arguments.
-        If the original function is marked as impure,
-        this property is only transferred to the last step before the actual call
+        Currying decorator for a function with TWO POSITIONAL arguments.
     """
     def curry2_step1(arg1: A) -> Callable[[B], R]:
+
         def curry2_final(arg2: B) -> R:
             return fn(arg1, arg2)
-        return _wrap_and_check_impure(curry2_final, fn)
+
+        return wraps(fn)(curry2_final)
+
     return curry2_step1
 
 
 def curry3(fn: Callable[[A, B, C], R]) -> Callable[[A], Callable[[B], Callable[[C], R]]]:
     """
-        Currying decorator for a function with three POSITIONAL arguments.
-        If the original function is marked as impure,
-        this property is only transferred to the last step before the actual call
+        Currying decorator for a function with THREE POSITIONAL arguments.
     """
-    def curry_step1(arg1: A) -> Callable[[B], Callable[[C], R]]:
+    def curry3_step1(arg1: A) -> Callable[[B], Callable[[C], R]]:
+
         def curry3_step2(arg2: B) -> Callable[[C], R]:
+
             def curry3_final(arg3: C) -> R:
                 return fn(arg1, arg2, arg3)
-            return _wrap_and_check_impure(curry3_final, fn)
+            return wraps(fn)(curry3_final)
+
         return curry3_step2
-    return curry_step1
+
+    return curry3_step1
 
 
 def curry4(fn: Callable[[A, B, C, D], R]) -> Callable[[A], Callable[[B], Callable[[C], Callable[[D], R]]]]:
     """
-        Currying decorator for a function with four POSITIONAL arguments.
-        If the original function is marked as impure,
-        this property is only transferred to the last step before the actual call
+        Currying decorator for a function with FOUR POSITIONAL arguments.
     """
     def curry4_step1(arg1: A) -> Callable[[B], Callable[[C], Callable[[D], R]]]:
+
         def curry4_step2(arg2: B) -> Callable[[C], Callable[[D], R]]:
+
             def curry4_step3(arg3: C) -> Callable[[D], R]:
+
                 def curry4_final(arg4: D) -> R:
                     return fn(arg1, arg2, arg3, arg4)
-                return _wrap_and_check_impure(curry4_final, fn)
+
+                return wraps(fn)(curry4_final)
+
             return curry4_step3
+
         return curry4_step2
+
     return curry4_step1
 
 
@@ -120,14 +120,12 @@ def _curry_step(fn, signature, positioned_args, named_args) -> Callable[..., Uni
         except TypeError as err:
             raise CurryBadArguments(func_name=_extract_name(fn), err=err.args[0]) from None
 
-    return _wrap_and_check_impure(_curry_step_inner, fn)
+    return wraps(fn)(_curry_step_inner)
 
 
 def curry(fn: Callable[..., R]) -> Callable[..., Union[Callable, R]]:
     """
         Currying decorator for a function with an arbitrary signature.
-        Since any number of arguments can be passed at each step,
-        the impure marking of the original function is set immediately.
         :raises CurryBadFunctionError: passed function is not suitable
         :raises CurryBadArguments: error at the level of the arguments being passed
     """
@@ -136,4 +134,4 @@ def curry(fn: Callable[..., R]) -> Callable[..., Union[Callable, R]]:
     def curried(*args, **kwargs) -> Union[Callable, R]:
         return _curry_step(fn, inspect.signature(fn), list(), dict())(*args, **kwargs)
 
-    return _wrap_and_check_impure(curried, fn)
+    return wraps(fn)(curried)

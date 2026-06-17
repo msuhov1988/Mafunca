@@ -1,9 +1,8 @@
 from dataclasses import dataclass
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable
 from typing import TypeVar, TypeAlias, Generic, Union, ParamSpec, Never, Any
 
 from mafunca.curry import curry2, curry3, curry4, curry
-from mafunca.specials import panic_on_impure
 
 
 __all__ = [
@@ -13,7 +12,6 @@ __all__ = [
     'just_of',
     'nothing_of',
     'from_null',
-    'from_null_yield',
     'ap',
     'lift2',
     'lift3',
@@ -40,21 +38,17 @@ class Just(Generic[T]):
         return False
 
     def map(self, fn: Callable[[T], R]) -> 'Just[R]':
-        """:raises MonadError: if the passed function is marked as impure"""
-        panic_on_impure(self.__class__.__name__, 'map', fn)
         return Just(fn(self.value))
 
     def bind(self, fn: Callable[[T], 'Maybe[R]']) -> 'Maybe[R]':
-        """:raises MonadError: if the passed function is marked as impure"""
-        panic_on_impure(self.__class__.__name__, 'bind', fn)
         return fn(self.value)
 
-    def get_or_else(self, alter: T) -> T:  # noqa
+    def get_or_else(self, alter: T) -> T:
+        _ = alter  # a dummy operation for an unused argument
         return self.value
 
     def unfold(self, *, just: Callable[[T], R], nothing: Callable[[], R]) -> R:
-        """:raises MonadError: if the passed functions are marked as impure"""
-        panic_on_impure(self.__class__.__name__, 'unfold', just, nothing)
+        _ = nothing  # a dummy operation for an unused argument
         return just(self.value)
 
 
@@ -71,21 +65,17 @@ class Nothing:
         return True
 
     def map(self, fn: Callable[[Never], R]) -> 'Nothing':
-        """:raises MonadError: if the passed function is marked as impure"""
-        panic_on_impure(self.__class__.__name__, 'map', fn)
+        _ = fn  # a dummy operation for an unused argument
         return self
 
     def bind(self, fn: Callable[[Never], 'Maybe[R]']) -> 'Nothing':
-        """:raises MonadError: if the passed function is marked as impure"""
-        panic_on_impure(self.__class__.__name__, 'bind', fn)
+        _ = fn  # a dummy operation for an unused argument
         return self
 
     def get_or_else(self, alter: T) -> T:  # noqa
         return alter
 
-    def unfold(self, *, just: Callable[[Never], R], nothing: Callable[[], R]) -> R:
-        """:raises MonadError: if the passed functions are marked as impure"""
-        panic_on_impure(self.__class__.__name__, 'unfold', just, nothing)
+    def unfold(self, *, just: Callable[[Never], R], nothing: Callable[[], R]) -> R:  # noqa
         return nothing()
 
 
@@ -107,34 +97,20 @@ A3 = TypeVar("A3")
 A4 = TypeVar("A4")
 
 
-def from_null(
-        value: R,
-        is_nullable: Callable[[R], bool] = lambda v: v is None
-) -> Maybe[R]:
-    """Wraps a value in the Nothing if 'is_nullable' returns true, otherwise - Just"""
-    return Nothing() if is_nullable(value) else Just(value)
+def from_null(is_nullable: Callable[[R], bool] = lambda v: v is None) -> Callable[[R], Maybe[R]]:
+    """Closure. Wraps a value in the Nothing if 'is_nullable' returns true, otherwise - Just"""
+    def from_null_inner(value: R) -> Maybe[R]:
+        return Nothing() if is_nullable(value) else Just(value)
 
-
-def from_null_yield(
-        iterable: Iterable[R],
-        is_nullable: Callable[[R], bool] = lambda v: v is None
-) -> Iterator[Maybe[R]]:
-    """
-       Goes through the iterator, wraps values in the Nothing if 'is_nullable' returns true, otherwise - Just.
-       Lazily returns values via yield.
-    """
-    for value in iterable:
-        yield Nothing() if is_nullable(value) else Just(value)
+    return from_null_inner
 
 
 def ap(fn: Maybe[Callable[[T], R]], val: Maybe[T]) -> Maybe[R]:
     """
         Applies value enclosed in the Maybe to a function also in the Maybe.
-        :raises MonadError: if function in the container is marked as impure
     """
     if isinstance(fn, Nothing):
         return fn
-    panic_on_impure('maybe module', 'ap', fn.value)
     if isinstance(val, Nothing):
         return val
     return Just(fn.value(val.value))
@@ -148,7 +124,6 @@ def lift2(
     """
         For a function with two POSITIONAL arguments.
         Wraps the passed function in the Maybe and applies the applicative method
-        :raises MonadError: from the underlying function/method if passed function is marked as impure
     """
     return ap(ap(Just(curry2(fn)), arg1), arg2)
 
@@ -162,7 +137,6 @@ def lift3(
     """
         For a function with three POSITIONAL arguments.
         Wraps the passed function in the Maybe and applies the applicative method
-        :raises MonadError: from the underlying function/method if passed function is marked as impure
     """
     return ap(ap(ap(Just(curry3(fn)), arg1), arg2), arg3)
 
@@ -177,7 +151,6 @@ def lift4(
     """
         For a function with four POSITIONAL arguments.
         Wraps the passed function in the Maybe and applies the applicative method
-        :raises MonadError: from the underlying function/method if passed function is marked as impure
     """
     return ap(ap(ap(ap(Just(curry4(fn)), arg1), arg2), arg3), arg4)
 
@@ -191,7 +164,6 @@ def lift(fn: Callable[..., R], *args: Maybe[Any]) -> Maybe[Union[Callable, R]]:
        a curried version with partially applied arguments will be returned.
        However, since each call curries the passed function,
        the partially applied arguments from the previous step are not preserved.
-       :raises MonadError: from the underlying function/method if passed function is marked as impure
     """
     result = Just(curry(fn))
     for arg in args:

@@ -1,8 +1,8 @@
 import unittest
 
 from mafunca.common.exceptions import MonadError
-from mafunca.specials import impure
-from mafunca.side import Side
+from mafunca.result import Ok, Err
+from mafunca.side import Side, SideT
 from mafunca.side_runners import run, run_safe, run_rebuild, insist
 
 
@@ -81,26 +81,6 @@ class TestSide(unittest.TestCase):
             Side.pure(10).bind(plus_bind)  # noqa
         with self.assertRaises(MonadError):
             Side.effect(plus_prime).map(lambda x: x + 1)
-
-    def test_impure_violation(self):
-        @impure
-        def plus_map(x):
-            return x + 1
-
-        @impure
-        def plus_bind(x):
-            return Side.pure(x + 1)
-
-        def plus_prime():
-            return 1
-
-        with self.assertRaises(MonadError):
-            Side.pure(10).map(plus_map)
-        with self.assertRaises(MonadError):
-            Side.pure(10).bind(plus_bind)  # noqa
-
-        eff = Side.effect(impure(plus_prime)).map(lambda x: x + 1)
-        self.assertEqual(run(eff), 2)
 
     def test_rebuild_errors(self):
         def raiser():
@@ -371,6 +351,127 @@ class TestSide(unittest.TestCase):
         rp = insist(rp.remainder, attempts=1)
         self.assertTrue(rp.completed_successfully)
         self.assertEqual(g, 3)
+
+    def test_transformer_result_pure_chains(self):
+        eff = SideT.pure(0).map(lambda x: x + 1).map(lambda x: x + 1)
+        self.assertEqual(run(eff).value, 2)
+
+        res = run_safe(eff)
+        self.assertTrue(res.is_ok)
+        self.assertTrue(res.value.is_ok)
+        self.assertEqual(res.value.value, 2)
+
+        report = run_rebuild(eff)
+        self.assertTrue(report.completed_successfully)
+        self.assertEqual(report.last_successfully.value, 2)
+
+        eff = SideT.pure(0).map_result(lambda x: Ok(x + 1)).map(lambda x: x + 1)
+        self.assertEqual(run(eff).value, 2)
+
+        res = run_safe(eff)
+        self.assertTrue(res.is_ok)
+        self.assertTrue(res.value.is_ok)
+        self.assertEqual(res.value.value, 2)
+
+        report = run_rebuild(eff)
+        self.assertTrue(report.completed_successfully)
+        self.assertEqual(report.last_successfully.value, 2)
+
+    def test_transformer_result_bind_chains(self):
+        eff = SideT.pure(0).map(lambda x: x + 1).bind(lambda x: SideT.wrap_result(Ok(x + 1)))
+        self.assertEqual(run(eff).value, 2)
+
+        res = run_safe(eff)
+        self.assertTrue(res.is_ok)
+        self.assertTrue(res.value.is_ok)
+        self.assertEqual(res.value.value, 2)
+
+        report = run_rebuild(eff)
+        self.assertTrue(report.completed_successfully)
+        self.assertEqual(report.last_successfully.value, 2)
+
+        eff = SideT.pure(0).map_result(lambda x: Ok(x + 1)).map(lambda x: x + 1)
+        self.assertEqual(run(eff).value, 2)
+
+        res = run_safe(eff)
+        self.assertTrue(res.is_ok)
+        self.assertTrue(res.value.is_ok)
+        self.assertEqual(res.value.value, 2)
+
+        report = run_rebuild(eff)
+        self.assertTrue(report.completed_successfully)
+        self.assertEqual(report.last_successfully.value, 2)
+
+    def test_transformer_result_inner_error(self):
+        eff = SideT.error(0).map(lambda x: x + 1).map(lambda x: x + 1)
+        self.assertTrue(run(eff).is_error)
+        self.assertEqual(run(eff).error, 0)
+
+        res = run_safe(eff)
+        self.assertTrue(res.is_ok)
+        self.assertTrue(res.value.is_error)
+        self.assertEqual(res.value.error, 0)
+
+        report = run_rebuild(eff)
+        self.assertTrue(report.completed_successfully)
+        self.assertEqual(report.last_successfully.error, 0)
+
+        eff = SideT.pure(0).map_result(lambda x: Err(x + 1)).map(lambda x: x + 1)
+        self.assertTrue(run(eff).is_error)
+        self.assertEqual(run(eff).error, 1)
+
+        res = run_safe(eff)
+        self.assertTrue(res.is_ok)
+        self.assertTrue(res.value.is_error)
+        self.assertEqual(res.value.error, 1)
+
+        report = run_rebuild(eff)
+        self.assertTrue(report.completed_successfully)
+        self.assertEqual(report.last_successfully.error, 1)
+
+    def test_transformer_result_triple_nested_chain_errors(self):
+        g = 0
+
+        def raiser():
+            nonlocal g
+            g += 1
+            if g < 3:
+                raise TypeError('error')
+            return Ok(None)
+
+        def inner_second_chain(val: int):
+            return SideT.effect(raiser).map(lambda _: val + 1)
+
+        def inner_first_chain(val: int):
+            return SideT.effect(lambda: Ok(val ** 2)).bind(inner_second_chain)
+
+        eff = SideT.pure(5).map(lambda v: v + 5).bind(inner_first_chain)
+        rp = run_rebuild(eff)
+        self.assertFalse(rp.completed_successfully)
+        self.assertTrue(rp.last_successfully.is_ok)
+        self.assertEqual(rp.last_successfully.value, 100)
+        self.assertIsInstance(rp.exception, TypeError)
+
+        rp = insist(rp.remainder, 2)
+        self.assertTrue(rp.completed_successfully)
+        self.assertTrue(rp.last_successfully.is_ok)
+        self.assertEqual(rp.last_successfully.get_or_else(0), 101)
+        self.assertIs(rp.exception, None)
+
+    def test_transformer_result_wrap_side(self):
+        eff = Side.pure(0).map(lambda x: x + 1).bind(lambda x: Side.effect(lambda: x + 1))
+        t_eff = SideT.wrap_side(eff)
+        self.assertTrue(run(t_eff).is_ok)
+        self.assertEqual(run(t_eff).value, 2)
+
+        res = run_safe(t_eff)
+        self.assertTrue(res.is_ok)
+        self.assertTrue(res.value.is_ok)
+        self.assertEqual(res.value.value, 2)
+
+        report = run_rebuild(t_eff)
+        self.assertTrue(report.completed_successfully)
+        self.assertEqual(report.last_successfully.value, 2)
 
 
 if __name__ == '__main__':

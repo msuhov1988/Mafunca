@@ -1,12 +1,12 @@
 from contextlib import closing
 from time import sleep
-from typing import TypeVar, Union, Any, cast
+from typing import TypeVar, Union, Any, cast, overload
 
 from mafunca.common.exceptions import MonadError
 from mafunca._lazy_support import panic_on_violations
 from mafunca._lazy_support import runner, rebuild_runner, Yield, Return, rebuild_from
 from mafunca.result import Result, Ok, Err
-from mafunca.side import Side
+from mafunca.side import Side, SideT
 from mafunca.side import _Pure, _Effect, _Continuation  # noqa
 from mafunca.side_rebuild_report import Report
 
@@ -20,14 +20,22 @@ __all__ = [
 
 
 A = TypeVar("A")
+E = TypeVar("E")
 
 
-def run(effect: Side[A]) -> A:
+@overload
+def run(effect: SideT[A, E]) -> Result[A, E]: ...
+@overload
+def run(effect: Side[A]) -> A: ...
+
+
+def run(effect):
     """
         Simple synchronous executor - just runs a chain.
         :raises MonadError: violations of the contract
     """
-    with closing(runner(effect, _Pure, _Continuation)) as gen:
+    eff = effect if isinstance(effect, Side) else effect.inner
+    with closing(runner(eff, _Pure, _Continuation)) as gen:
         try:
             entity = next(gen)
             while True:
@@ -36,24 +44,36 @@ def run(effect: Side[A]) -> A:
                 else:
                     panic_on_violations(Side.__name__, 'run', entity)
         except StopIteration as finish:
-            return cast(A, finish.value)
+            return finish.value
 
 
-def run_safe(effect: Side[A]) -> Result[A, Exception]:
+@overload
+def run_safe(effect: SideT[A, E]) -> Result[Result[A, E], Exception]: ...
+@overload
+def run_safe(effect: Side[A]) -> Result[A, Exception]: ...
+
+
+def run_safe(effect):
     """
         Synchronous executor - runs a chain, catching possible errors - heirs of 'Exception'
 
         MonadError is not suppressed.
     """
     try:
-        return cast(Result[A, Exception], Ok(run(effect)))
+        return Ok(run(effect))
     except MonadError:
         raise
     except Exception as err:
-        return cast(Result[A, Exception], Err(err))
+        return Err(err)
 
 
-def run_rebuild(effect: Side[A]) -> Report[Any, Side[A]]:
+@overload
+def run_rebuild(effect: SideT[A, E]) -> Report[Result[Any, E], SideT[A, E]]: ...
+@overload
+def run_rebuild(effect: Side[A]) -> Report[Any, Side[A]]: ...
+
+
+def run_rebuild(effect):
     """
        Synchronous executor - runs a chain, catching possible errors - heirs of 'Exception'.
 
@@ -62,7 +82,8 @@ def run_rebuild(effect: Side[A]) -> Report[Any, Side[A]]:
        MonadError is not suppressed.
        :raises MonadError: violations of the contract
     """
-    with closing(rebuild_runner(effect, _Pure, _Continuation)) as gen:
+    eff = effect if isinstance(effect, Side) else effect.inner
+    with closing(rebuild_runner(eff, _Pure, _Continuation)) as gen:
         try:
             yld: Yield = next(gen)
             entity, last_success, stack = yld.entity, yld.last_success, yld.stack
@@ -86,7 +107,23 @@ def run_rebuild(effect: Side[A]) -> Report[Any, Side[A]]:
             return cast(Report[Any, Side[A]], Report(last_success, error, faulty, remainder=rest))
 
 
-def insist(effect: Side[A], attempts: int = 1, pause: Union[int, float] = 0) -> Report[Any, Side[A]]:
+@overload
+def insist(
+        effect: SideT[A, E],
+        attempts: int = 1,
+        pause: Union[int, float] = 0
+) -> Report[Result[Any, E], SideT[A, E]]: ...
+
+
+@overload
+def insist(
+        effect: Side[A],
+        attempts: int = 1,
+        pause: Union[int, float] = 0
+) -> Report[Any, Side[A]]: ...
+
+
+def insist(effect, attempts=1, pause=0):
     """
         Makes 'attempts' to execute an effect with 'pause' intervals between them
 

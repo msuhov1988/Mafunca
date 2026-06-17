@@ -1,8 +1,6 @@
 import unittest
 
 from mafunca.result import Ok, Err, ok_of, from_try, ap, lift, lift2, lift3, lift4
-from mafunca.specials import impure
-from mafunca.curry import curry
 from mafunca.common.exceptions import MonadError
 
 
@@ -53,14 +51,6 @@ class TestResult(unittest.TestCase):
         res = Err("Some error").map_error(lambda e: [e]).unfold(ok=lambda v: v, err=lambda e: e)
         self.assertEqual(res, ["Some error"])
 
-    def test_violations(self):
-        @impure
-        def fn_impure(a):
-            return a
-
-        with self.assertRaises(MonadError):
-            Ok(1).map(fn_impure)
-
     def test_from_try(self):
         @from_try
         def test_from_try(a):
@@ -77,7 +67,7 @@ class TestResult(unittest.TestCase):
     def test_from_try_monad_error(self):
         @from_try
         def raiser(a):
-            a = a + 1
+            _ = a + 1
             raise MonadError("test", "test", "test")
 
         with self.assertRaises(MonadError):
@@ -132,10 +122,6 @@ class TestResult(unittest.TestCase):
         res = lift4(four, Ok(1), Err(None), Ok(3), Ok(4)).get_or_else(0)
         self.assertEqual(res, 0)
 
-        four = impure(four)
-        with self.assertRaises(MonadError):
-            lift4(four, Ok(1), Ok(2), Ok(3), Ok(4))
-
     def test_lift(self):
         def many(a, b, c, d, e):
             return [a, b, c, d, e]
@@ -161,15 +147,6 @@ class TestResult(unittest.TestCase):
         res = ap(res, Ok(4))
         res = ap(res, Ok(5))
         self.assertTrue(res.is_error)
-
-    def test_curry_impurity(self):
-        @curry
-        @impure
-        def test(a, b):
-            return a + b
-
-        with self.assertRaises(MonadError):
-            lift(test, Ok(1), Ok(2))
 
 
 if __name__ == "__main__":

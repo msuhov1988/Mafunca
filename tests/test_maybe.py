@@ -1,9 +1,6 @@
 import unittest
 
-from mafunca.maybe import Just, Nothing, just_of, from_null, from_null_yield, ap, lift, lift2, lift3, lift4
-from mafunca.specials import impure
-from mafunca.curry import curry
-from mafunca.common.exceptions import MonadError
+from mafunca.maybe import Just, Nothing, just_of, from_null, ap, lift, lift2, lift3, lift4
 
 
 class TestMaybe(unittest.TestCase):
@@ -44,36 +41,23 @@ class TestMaybe(unittest.TestCase):
         res = Nothing().map(lambda x: x + 1).bind(lambda x: Just(x + 1)).get_or_else(100)
         self.assertEqual(res, 100)
 
-    def test_violations(self):
-        @impure
-        def fn_impure(a):
-            return a
-
-        with self.assertRaises(MonadError):
-            Just(1).map(fn_impure)
-
     def test_nullable(self):
-        res = from_null(1).map(lambda x: x + 1).bind(lambda x: Just(x))
+        res = from_null()(1).map(lambda x: x + 1).bind(lambda x: Just(x))
         self.assertTrue(res.is_just)
         self.assertEqual(res.get_or_else(100), 2)
 
-        res = from_null(None).map(lambda x: x + 1).bind(lambda x: Just(x))
+        res = from_null()(None).map(lambda x: x + 1).bind(lambda x: Just(x))
         self.assertTrue(res.is_nothing)
         self.assertEqual(res.get_or_else(100), 100)
 
-        res = from_null([], is_nullable=lambda lst: len(lst) == 0).map(lambda x: x + 1).bind(lambda x: Just(x))
+        res = from_null(is_nullable=lambda lst: len(lst) == 0)([]).map(lambda x: x + 1).bind(lambda x: Just(x))
         self.assertTrue(res.is_nothing)
         self.assertEqual(res.get_or_else(100), 100)
 
     def test_nullable_yield(self):
-        res = from_null_yield((i for i in range(10)), lambda v: v % 2 == 0)
+        res = (from_null(lambda v: v % 2 == 0)(i) for i in range(10))
         res = list((m for m in res if m.is_nothing))
         self.assertEqual(len(res), 5)
-
-        res = [1, None, 2, None, 3]
-        res = from_null_yield(res)
-        res = list(m.get_or_else(100) for m in res if m.is_just)
-        self.assertEqual(res, [1, 2, 3])
 
     def test_ap(self):
         def one(a):
@@ -124,10 +108,6 @@ class TestMaybe(unittest.TestCase):
         res = lift4(four, Just(1), Nothing(), Just(3), Just(4)).get_or_else(0)
         self.assertEqual(res, 0)
 
-        four = impure(four)
-        with self.assertRaises(MonadError):
-            lift4(four, Just(1), Just(2), Just(3), Just(4))
-
     def test_lift(self):
         def many(a, b, c, d, e):
             return [a, b, c, d, e]
@@ -154,15 +134,6 @@ class TestMaybe(unittest.TestCase):
         res = ap(res, Just(4))
         res = ap(res, Just(5))
         self.assertTrue(res.is_nothing)
-
-    def test_curry_impurity(self):
-        @curry
-        @impure
-        def test(a, b):
-            return a + b
-
-        with self.assertRaises(MonadError):
-            lift(test, Just(1), Just(2))
 
 
 if __name__ == "__main__":

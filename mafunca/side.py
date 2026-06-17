@@ -1,19 +1,20 @@
 from dataclasses import dataclass
 from collections.abc import Callable
-from typing import Generic, TypeVar, Any, Union
+from typing import Generic, TypeVar, Any, Union, Never
 
-from mafunca.specials import panic_on_impure
-from mafunca._lazy_support import panic_on_coroutine  # noqa
+from mafunca._lazy_support import panic_on_coroutine
 from mafunca.result import Result, Ok, Err
 
 
 __all__ = [
     "Side",
+    "SideT",
 ]
 
 
 A = TypeVar("A")
 B = TypeVar("B")
+C = TypeVar("C")
 E = TypeVar("E")
 
 
@@ -22,17 +23,6 @@ class Side(Generic[A]):
         A monad for SYNCHRONOUS ONLY effects.
         Lazy: not executed until the corresponding executor is called.
     """
-    def map(self, fn: Callable[[A], B]) -> 'Side[B]':
-        """:raises MonadError: coroutine or marked as impure functions are not allowed"""
-        panic_on_coroutine(fn, self.__class__.__name__, 'map')
-        panic_on_impure(self.__class__.__name__, 'map', fn)
-        return _Continuation(self, lambda a: _Pure(fn(a)), fn)
-
-    def bind(self, fn: Callable[[A], 'Side[B]']) -> 'Side[B]':
-        """:raises MonadError: coroutine or marked as impure functions are not allowed"""
-        panic_on_coroutine(fn, self.__class__.__name__, 'bind')
-        panic_on_impure(self.__class__.__name__, 'bind', fn)
-        return _Continuation(self, fn, fn)
 
     @staticmethod
     def pure(value: A) -> 'Side[A]':
@@ -44,9 +34,19 @@ class Side(Generic[A]):
         panic_on_coroutine(fn, Side.__name__, 'effect')
         return _Effect(fn)
 
+    def map(self, fn: Callable[[A], B]) -> 'Side[B]':
+        """:raises MonadError: coroutine functions are not allowed"""
+        panic_on_coroutine(fn, self.__class__.__name__, 'map')
+        return _Continuation(self, lambda a: _Pure(fn(a)), fn)
+
+    def bind(self, fn: Callable[[A], 'Side[B]']) -> 'Side[B]':
+        """:raises MonadError: coroutine functions are not allowed"""
+        panic_on_coroutine(fn, self.__class__.__name__, 'bind')
+        return _Continuation(self, fn, fn)
+
 
 #  IMPORTANT
-#  All nodes except primary effects in all lazy monads must have the same attribute names
+#  All nodes such as Pure and Continuation in all deferred pipelines must have the same attribute names
 #  Code-level convention
 
 @dataclass(frozen=True, slots=True, repr=True)
@@ -63,85 +63,63 @@ class _Effect(Side[A]):
 class _Continuation(Side[B]):
     current: Side[Any]
     next: Callable[[Any], Side[B]]
-    next_origin: Callable[[Any], Union[Side[B], B]]
+    next_origin: Callable[[Any], Union[Side[B], C]]
 
 
-# all methods in transformers are implemented without relying on the methods of underlying monads
-# so as not to duplicate panics on impure functions
-
-class TSideR(Generic[A, E]):
+@dataclass(frozen=True, slots=True, repr=True)
+class SideT(Generic[A, E]):
     """
         A transformer for SYNCHRONOUS ONLY effects.
 
-        It is built over a value of the form Result[A,E] or an effect of the form Callable[[], Result[A, E]].
+        Container for a composite value of the form 'Side[Result[A, E]]'.
 
         Lazy: not executed until the corresponding executor is called.
     """
-    def map(self, fn: Callable[[A], B]) -> 'TSideR[B, E]':
-        """:raises MonadError: coroutine or marked as impure functions are not allowed"""
-        panic_on_coroutine(fn, self.__class__.__name__, 'map')
-        panic_on_impure(self.__class__.__name__, 'map', fn)
-
-        def continuation(arg: Result[A, E]) -> 'TSideR[B, E]':
-            if isinstance(arg, Err):
-                return _TPureR(arg)
-            return _TPureR(Ok(fn(arg.value)))
-
-        return _TContinuationR(self, continuation, fn)
-
-    def map_result(self, fn: Callable[[A], Result[B, E]]) -> 'TSideR[B, E]':
-        """:raises MonadError: coroutine or marked as impure functions are not allowed"""
-        panic_on_coroutine(fn, self.__class__.__name__, 'map_result')
-        panic_on_impure(self.__class__.__name__, 'map_result', fn)
-
-        def continuation(arg: Result[A, E]) -> 'TSideR[B, E]':
-            if isinstance(arg, Err):
-                return _TPureR(arg)
-            return _TPureR(fn(arg.value))
-
-        return _TContinuationR(self, continuation, fn)
-
-    def bind(self, fn: Callable[[A], 'TSideR[B, E]']) -> 'TSideR[B, E]':
-        """:raises MonadError: coroutine or marked as impure functions are not allowed"""
-        panic_on_coroutine(fn, self.__class__.__name__, 'bind')
-        panic_on_impure(self.__class__.__name__, 'bind', fn)
-        return _TContinuationR(self, fn, fn)
+    inner: Side[Result[A, E]]
 
     @staticmethod
-    def pure(value: A) -> 'TSideR[A, E]':
-        return _TPureR(Ok(value))
+    def pure(value: A) -> 'SideT[A, Never]':
+        return SideT(_Pure(Ok(value)))
 
     @staticmethod
-    def pure_error(error: E) -> 'TSideR[A, E]':
-        return _TPureR(Err(error))
+    def error(error: E) -> 'SideT[Never, E]':
+        return SideT(_Pure(Err(error)))
 
     @staticmethod
-    def wrap_result(value: Result[A, E]) -> 'TSideR[A, E]':
-        return _TPureR(value)
+    def wrap_result(result: Result[A, E]) -> 'SideT[A, E]':
+        return SideT(_Pure(result))
 
     @staticmethod
-    def effect(fn: Callable[[], Result[A, E]]) -> 'TSideR[A, E]':
+    def wrap_side(side: Side[A]) -> 'SideT[A, Never]':
+
+        def continuation(arg: A) -> Side[Result[A, Never]]:
+            return _Pure(Ok(arg))
+
+        return SideT(_Continuation(side, continuation, continuation))
+
+    @staticmethod
+    def effect(fn: Callable[[], Result[A, E]]) -> 'SideT[A, E]':
         """:raises MonadError: coroutine functions are not allowed"""
-        panic_on_coroutine(fn, TSideR.__name__, 'effect')
-        return _TEffectR(fn)
+        panic_on_coroutine(fn, SideT.__name__, 'effect')
+        return SideT(_Effect(fn))
 
+    def map(self, fn: Callable[[A], B]) -> 'SideT[B, E]':
+        """:raises MonadError: coroutine functions are not allowed"""
+        panic_on_coroutine(fn, self.__class__.__name__, 'map')
+        return SideT(_Continuation(self.inner, lambda res: _Pure(res.map(fn)), fn))
 
-#  IMPORTANT
-#  All nodes except primary effects in all lazy monads must have the same attribute names
-#  Code-level convention
+    def map_result(self, fn: Callable[[A], Result[B, E]]) -> 'SideT[B, E]':
+        """:raises MonadError: coroutine functions are not allowed"""
+        panic_on_coroutine(fn, self.__class__.__name__, 'map_result')
+        return SideT(_Continuation(self.inner, lambda res: _Pure(res.bind(fn)), fn))
 
-@dataclass(frozen=True, slots=True, repr=True)
-class _TPureR(TSideR[A, E]):
-    value: Result[A, E]
+    def bind(self, fn: Callable[[A], 'SideT[B, E]']) -> 'SideT[B, E]':
+        """:raises MonadError: coroutine functions are not allowed"""
+        panic_on_coroutine(fn, self.__class__.__name__, 'bind')
 
+        def continuation(arg: Result[A, E]) -> Side[Result[B, E]]:
+            if isinstance(arg, Err):
+                return _Pure(arg)
+            return fn(arg.value).inner
 
-@dataclass(frozen=True, slots=True, repr=True)
-class _TEffectR(TSideR[A, E]):
-    prime: Callable[[], Result[A, E]]
-
-
-@dataclass(frozen=True, slots=True, repr=True)
-class _TContinuationR(TSideR[B, E]):
-    current: TSideR[Any, E]
-    next: Callable[[Any], TSideR[B, E]]
-    next_origin: Callable[[Any], Union[TSideR[B, E], Result[B, E], B]]
+        return SideT(_Continuation(self.inner, continuation, fn))

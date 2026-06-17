@@ -4,7 +4,6 @@ import asyncio
 
 from mafunca.common.exceptions import CurryBadArguments
 from mafunca.curry import curry2, curry3, curry4, curry
-from mafunca.specials import impure, is_impure
 
 
 class TestCurry(unittest.TestCase):
@@ -16,15 +15,6 @@ class TestCurry(unittest.TestCase):
 
         self.assertTrue(callable(test(1)))
         self.assertEqual(test(1)(2), 3)
-        self.assertFalse(is_impure(test(1)))
-
-        @curry2
-        @impure
-        def test_impure(a: int, b: int) -> int:
-            return a + b
-
-        self.assertFalse(is_impure(test_impure))
-        self.assertTrue(is_impure(test_impure(1)))
 
     def test_curry3(self):
         def test(a: int, b: int, c: int) -> int:
@@ -35,13 +25,6 @@ class TestCurry(unittest.TestCase):
         self.assertTrue(callable(test_result(1)))
         self.assertTrue(callable(test_result(1)(2)))
         self.assertEqual(test_result(1)(2)(3), 6)
-        self.assertFalse(is_impure(test_result(1)(2)))
-
-        test_impure = curry3(impure(test))
-
-        self.assertFalse(is_impure(test_impure))
-        self.assertFalse(is_impure(test_impure(1)))
-        self.assertTrue(is_impure(test_impure(1)(2)))
 
     def test_curry4(self):
         def test(a: int, b: int, c: int, d: int) -> int:
@@ -53,14 +36,6 @@ class TestCurry(unittest.TestCase):
         self.assertTrue(callable(test_result(1)(2)))
         self.assertTrue(callable(test_result(1)(2)(3)))
         self.assertEqual(test_result(1)(2)(3)(4), 10)
-        self.assertFalse(is_impure(test_result(1)(2)(3)))
-
-        test_impure = curry4(impure(test))
-
-        self.assertFalse(is_impure(test_impure))
-        self.assertFalse(is_impure(test_impure(1)))
-        self.assertFalse(is_impure(test_impure(1)(2)))
-        self.assertTrue(is_impure(test_impure(1)(2)(3)))
 
     def test_curry_basic(self):
         @curry
@@ -115,17 +90,6 @@ class TestCurry(unittest.TestCase):
         with self.assertRaises(CurryBadArguments):
             for_curry(c=1)
         self.assertEqual(for_curry(1)(b=2), 3)
-
-    def test_is_impure(self):
-        @impure
-        def test(a, b):
-            return a, b
-
-        curried = curry(test)
-        self.assertEqual(is_impure(curried), True)
-
-        curried = curried(3)
-        self.assertEqual(is_impure(curried), True)
 
 
 class TestAsyncCurry(unittest.IsolatedAsyncioTestCase):
