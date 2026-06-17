@@ -3,7 +3,7 @@ from collections.abc import Callable
 from functools import wraps
 from typing import TypeVar, TypeAlias, Generic, Union, ParamSpec, Never, Any
 
-from mafunca.curry import curry2, curry3, curry4, curry
+from mafunca.curry import curry2, curry3, curry4
 from mafunca.common.exceptions import MonadError
 
 
@@ -143,10 +143,6 @@ def lift2(
         arg1: Result[A1, E],
         arg2: Result[A2, E]
 ) -> Result[R, E]:
-    """
-        For a function with two POSITIONAL arguments.
-        Wraps the passed function in the Result and applies the applicative method
-    """
     return ap(ap(Ok(curry2(fn)), arg1), arg2)
 
 
@@ -156,10 +152,6 @@ def lift3(
         arg2: Result[A2, E],
         arg3: Result[A3, E]
 ) -> Result[R, E]:
-    """
-        For a function with three POSITIONAL arguments.
-        Wraps the passed function in the Result and applies the applicative method
-    """
     return ap(ap(ap(Ok(curry3(fn)), arg1), arg2), arg3)
 
 
@@ -170,24 +162,13 @@ def lift4(
         arg3: Result[A3, E],
         arg4: Result[A4, E],
 ) -> Result[R, E]:
-    """
-        For a function with four POSITIONAL arguments.
-        Wraps the passed function in the Result and applies the applicative method
-    """
     return ap(ap(ap(ap(Ok(curry4(fn)), arg1), arg2), arg3), arg4)
 
 
-def lift(fn: Callable[..., R], *args: Result[Any, E]) -> Result[Union[Callable, R], E]:
-    """
-       For a function with an arbitrary number of POSITIONAL arguments.
-       Wraps the passed function in the Result and applies the applicative method.
-
-       ATTENTION. When an incomplete number of arguments is passed,
-       a curried version with partially applied arguments will be returned.
-       However, since each call curries the passed function,
-       the partially applied arguments from the previous step are not preserved.
-    """
-    result = Ok(curry(fn))
+def lift(fn: Callable[..., R], *args: Result[Any, E]) -> Result[R, E]:
+    unwrapped = list()
     for arg in args:
-        result = ap(result, arg)
-    return result
+        if isinstance(arg, Err):
+            return arg
+        unwrapped.append(arg.value)
+    return Ok(fn(*unwrapped))

@@ -5,7 +5,7 @@ from typing import TypeVar, Generic, Union, ParamSpec, cast, Any, Never
 
 from mafunca.maybe import Just, Nothing, Maybe
 from mafunca.result import Ok, Err, Result
-from mafunca.curry import curry2, curry3, curry4, curry
+from mafunca.curry import curry2, curry3, curry4
 from mafunca.common.exceptions import MonadError
 
 
@@ -171,10 +171,6 @@ def lift2(
         arg1: MaybeT[A1, E],
         arg2: MaybeT[A2, E]
 ) -> MaybeT[R, E]:
-    """
-        For a function with two POSITIONAL arguments.
-        Wraps the passed function in the container and applies the applicative method
-    """
     return ap(ap(ok_of(curry2(fn)), arg1), arg2)
 
 
@@ -184,10 +180,6 @@ def lift3(
         arg2: MaybeT[A2, E],
         arg3: MaybeT[A3, E]
 ) -> MaybeT[R, E]:
-    """
-        For a function with three POSITIONAL arguments.
-        Wraps the passed function in the container and applies the applicative method
-    """
     return ap(ap(ap(ok_of(curry3(fn)), arg1), arg2), arg3)
 
 
@@ -198,24 +190,15 @@ def lift4(
         arg3: MaybeT[A3, E],
         arg4: MaybeT[A4, E]
 ) -> MaybeT[R, E]:
-    """
-        For a function with four POSITIONAL arguments.
-        Wraps the passed function in the container and applies the applicative method
-    """
     return ap(ap(ap(ap(ok_of(curry4(fn)), arg1), arg2), arg3), arg4)
 
 
-def lift(fn: Callable[..., R], *args: MaybeT[Any, E]) -> MaybeT[Union[Callable, R], E]:
-    """
-       For a function with an arbitrary number of POSITIONAL arguments.
-       Wraps the passed function in the container and applies the applicative method.
-
-       ATTENTION. When an incomplete number of arguments is passed,
-       a curried version with partially applied arguments will be returned.
-       However, since each call curries the passed function,
-       the partially applied arguments from the previous step are not preserved.
-    """
-    result = ok_of(curry(fn))
+def lift(fn: Callable[..., R], *args: MaybeT[Any, E]) -> MaybeT[R, E]:
+    unwrapped = list()
     for arg in args:
-        result = ap(result, arg)
-    return result
+        if isinstance(arg.inner, Nothing):
+            return arg
+        if isinstance(arg.inner.value, Err):
+            return arg
+        unwrapped.append(arg.inner.value.value)
+    return ok_of(fn(*unwrapped))

@@ -5,7 +5,7 @@ from typing import TypeVar, Generic, Union, ParamSpec, cast, Any, Never
 
 from mafunca.maybe import Just, Nothing, Maybe
 from mafunca.result import Ok, Err, Result
-from mafunca.curry import curry2, curry3, curry4, curry
+from mafunca.curry import curry2, curry3, curry4
 from mafunca.common.exceptions import MonadError
 
 
@@ -171,10 +171,6 @@ def lift2(
         arg1: ResultT[A1, E],
         arg2: ResultT[A2, E]
 ) -> ResultT[R, E]:
-    """
-        For a function with two POSITIONAL arguments.
-        Wraps the passed function in the container and applies the applicative method
-    """
     return ap(ap(just_of(curry2(fn)), arg1), arg2)
 
 
@@ -184,10 +180,6 @@ def lift3(
         arg2: ResultT[A2, E],
         arg3: ResultT[A3, E]
 ) -> ResultT[R, E]:
-    """
-        For a function with three POSITIONAL arguments.
-        Wraps the passed function in the container and applies the applicative method
-    """
     return ap(ap(ap(just_of(curry3(fn)), arg1), arg2), arg3)
 
 
@@ -198,24 +190,15 @@ def lift4(
         arg3: ResultT[A3, E],
         arg4: ResultT[A4, E],
 ) -> ResultT[R, E]:
-    """
-        For a function with four POSITIONAL arguments.
-        Wraps the passed function in the container and applies the applicative method
-    """
     return ap(ap(ap(ap(just_of(curry4(fn)), arg1), arg2), arg3), arg4)
 
 
-def lift(fn: Callable[..., R], *args: ResultT[Any, E]) -> ResultT[Union[Callable, R], E]:
-    """
-       For a function with an arbitrary number of POSITIONAL arguments.
-       Wraps the passed function in the container and applies the applicative method.
-
-       ATTENTION. When an incomplete number of arguments is passed,
-       a curried version with partially applied arguments will be returned.
-       However, since each call curries the passed function,
-       the partially applied arguments from the previous step are not preserved.
-    """
-    result = just_of(curry(fn))
+def lift(fn: Callable[..., R], *args: ResultT[Any, E]) -> ResultT[R, E]:
+    unwrapped = list()
     for arg in args:
-        result = ap(result, arg)
-    return result
+        if isinstance(arg.inner, Err):
+            return arg
+        if isinstance(arg.inner.value, Nothing):
+            return arg
+        unwrapped.append(arg.inner.value.value)
+    return just_of(fn(*unwrapped))

@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from collections.abc import Callable
 from typing import TypeVar, TypeAlias, Generic, Union, ParamSpec, Never, Any
 
-from mafunca.curry import curry2, curry3, curry4, curry
+from mafunca.curry import curry2, curry3, curry4
 
 
 __all__ = [
@@ -155,17 +155,10 @@ def lift4(
     return ap(ap(ap(ap(Just(curry4(fn)), arg1), arg2), arg3), arg4)
 
 
-def lift(fn: Callable[..., R], *args: Maybe[Any]) -> Maybe[Union[Callable, R]]:
-    """
-       For a function with an arbitrary number of POSITIONAL arguments.
-       Wraps the passed function in the Maybe and applies the applicative method.
-
-       ATTENTION. When an incomplete number of arguments is passed,
-       a curried version with partially applied arguments will be returned.
-       However, since each call curries the passed function,
-       the partially applied arguments from the previous step are not preserved.
-    """
-    result = Just(curry(fn))
+def lift(fn: Callable[..., R], *args: Maybe[Any]) -> Maybe[R]:
+    unwrapped = list()
     for arg in args:
-        result = ap(result, arg)
-    return result
+        if isinstance(arg, Nothing):
+            return arg
+        unwrapped.append(arg.value)
+    return Just(fn(*unwrapped))

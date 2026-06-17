@@ -134,20 +134,6 @@ class TestResult(unittest.TestCase):
         res = lift(many, Ok(1), Err(2), Ok(3), Ok(4), Ok(5)).get_or_else(0)
         self.assertEqual(res, 0)
 
-    def test_lift_partial(self):
-        def many(a, b, c, d, e):
-            return [a, b, c, d, e]
-
-        res = lift(many, Ok(1), Ok(2), Ok(3))
-        res = ap(res, Ok(4))
-        res = ap(res, Ok(5)).get_or_else([])
-        self.assertEqual(res, [1, 2, 3, 4, 5])
-
-        res = lift(many, Err(1), Ok(2), Ok(3))
-        res = ap(res, Ok(4))
-        res = ap(res, Ok(5))
-        self.assertTrue(res.is_error)
-
 
 if __name__ == "__main__":
     unittest.main()

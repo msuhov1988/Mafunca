@@ -121,20 +121,6 @@ class TestMaybe(unittest.TestCase):
         res = lift(many, Just(1), Nothing(), Just(3), Just(4), Just(5)).get_or_else(0)
         self.assertEqual(res, 0)
 
-    def test_lift_partial(self):
-        def many(a, b, c, d, e):
-            return [a, b, c, d, e]
-
-        res = lift(many, Just(1), Just(2), Just(3))
-        res = ap(res, Just(4))
-        res = ap(res, Just(5)).get_or_else([])
-        self.assertEqual(res, [1, 2, 3, 4, 5])
-
-        res = lift(many, Nothing(), Just(2), Just(3))
-        res = ap(res, Just(4))
-        res = ap(res, Just(5))
-        self.assertTrue(res.is_nothing)
-
 
 if __name__ == "__main__":
     unittest.main()
