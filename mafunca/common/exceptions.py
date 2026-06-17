@@ -1,4 +1,4 @@
-class MonadError(Exception):
+class MonadError(BaseException):
     """Thrown when monadic contracts are violated.
        Not recommended to import and catch.
        Separated - not in the error hierarchy of this library.

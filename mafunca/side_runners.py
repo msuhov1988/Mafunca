@@ -2,7 +2,6 @@ from contextlib import closing
 from time import sleep
 from typing import TypeVar, Union, Any, cast, overload
 
-from mafunca.common.exceptions import MonadError
 from mafunca._lazy_support import panic_on_violations
 from mafunca._lazy_support import runner, rebuild_runner, Yield, Return, rebuild_from
 from mafunca.result import Result, Ok, Err
@@ -61,8 +60,6 @@ def run_safe(effect):
     """
     try:
         return Ok(run(effect))
-    except MonadError:
-        raise
     except Exception as err:
         return Err(err)
 
@@ -91,8 +88,6 @@ def run_rebuild(effect):
                 if isinstance(entity, _Effect):
                     try:
                         pure_from_prime = _Pure(entity.prime())
-                    except MonadError:
-                        raise
                     except Exception as error:
                         rest = rebuild_from(entity, stack, _Continuation)
                         return cast(Report[Any, Side[A]], Report(last_success, error, entity.prime, remainder=rest))

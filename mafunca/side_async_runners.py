@@ -2,7 +2,6 @@ from contextlib import closing
 import asyncio
 from typing import TypeVar, Union, Any, cast, overload
 
-from mafunca.common.exceptions import MonadError
 from mafunca._lazy_support import panic_on_violations
 from mafunca._lazy_support import runner, rebuild_runner, Yield, Return, rebuild_from
 from mafunca.result import Result, Ok, Err
@@ -80,7 +79,7 @@ async def run_safe_async(effect):
     """
     try:
         return Ok(await run_async(effect))
-    except (MonadError, asyncio.CancelledError):
+    except asyncio.CancelledError:
         raise
     except Exception as err:
         return Err(err)
@@ -112,7 +111,7 @@ async def run_rebuild_async(effect):
             while True:
                 try:
                     out = Ok(await _execute_async_effect(entity, method='run_rebuild_async'))
-                except (MonadError, asyncio.CancelledError):
+                except asyncio.CancelledError:
                     raise
                 except Exception as error:
                     rest = rebuild_from(entity, stack, _AsyncContinuation)

@@ -4,7 +4,6 @@ from functools import wraps
 from typing import TypeVar, TypeAlias, Generic, Union, ParamSpec, Never, Any
 
 from mafunca.curry import curry2, curry3, curry4
-from mafunca.common.exceptions import MonadError
 
 
 __all__ = [
@@ -113,15 +112,12 @@ A4 = TypeVar("A4")
 def from_try(fn: Callable[Args, R]) -> Callable[Args, Result[R, Exception]]:
     """
         Decorator. Performs a function, catching possible errors - heirs of 'Exception'.
-        'MonadError' is not suppressed.
     """
 
     def from_try_inner(*args: Args.args, **kwargs: Args.kwargs) -> Result[R, Exception]:
         try:
             return ok_of(fn(*args, **kwargs))
         except Exception as err:
-            if isinstance(err, MonadError):
-                raise err
             return Err(err)
 
     return wraps(fn)(from_try_inner)

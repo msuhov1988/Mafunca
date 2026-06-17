@@ -6,7 +6,6 @@ from typing import TypeVar, Generic, Union, ParamSpec, cast, Any, Never
 from mafunca.maybe import Just, Nothing, Maybe
 from mafunca.result import Ok, Err, Result
 from mafunca.curry import curry2, curry3, curry4
-from mafunca.common.exceptions import MonadError
 
 
 __all__ = [
@@ -132,7 +131,6 @@ def from_try(is_nullable: Callable[[R], bool] = lambda v: v is None):
     """
         Decorator. Performs a function, catching possible errors - heirs of 'Exception'
         and wraps the result based on 'is_nullable' predicate.
-        'MonadError' is not suppressed.
     """
     def decorator(fn: Callable[Args, R]) -> Callable[Args, MaybeT[R, Exception]]:
 
@@ -140,8 +138,6 @@ def from_try(is_nullable: Callable[[R], bool] = lambda v: v is None):
             try:
                 return from_null(is_nullable)(fn(*args, **kwargs))
             except Exception as err:
-                if isinstance(err, MonadError):
-                    raise err
                 return error_of(err)
 
         return wraps(fn)(wrapper)
