@@ -152,7 +152,7 @@ class RetryAsync(Generic[A], EffectAsync[A]):
 
 
 @dataclass(frozen=True, slots=True, repr=True)
-class BindAsync(Generic[A, B], EffectAsync[A]):
+class BindAsync(Generic[A, B], EffectAsync[B]):
     current: EffectAsync[A]
     continuation: Callable[[A], EffectAsync[B]]
 

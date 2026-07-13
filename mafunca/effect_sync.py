@@ -109,7 +109,7 @@ class Retry(Generic[A], EffectSync[A]):
 
 
 @dataclass(frozen=True, slots=True, repr=True)
-class Bind(Generic[A, B], EffectSync[A]):
+class Bind(Generic[A, B], EffectSync[B]):
     current: EffectSync[A]
     continuation: Callable[[A], EffectSync[B]]
 
