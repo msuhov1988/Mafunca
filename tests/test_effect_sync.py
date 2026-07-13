@@ -163,6 +163,10 @@ class TestEffectSync(unittest.TestCase):
             run(eff)
         self.assertEqual(glb, 2)
 
+        eff = delay(raiser).catch_bind(TypeError, lambda _: pure(1).ensure(delay(increase)))
+        self.assertEqual(run(eff), 1)
+        self.assertEqual(glb, 3)
+
     def test_ensure_with_errors(self):
         def raiser():
             raise TypeError("test raise")
@@ -188,6 +192,12 @@ class TestEffectSync(unittest.TestCase):
         )
         self.assertEqual(run(eff), 1)
         self.assertEqual(glb, 1)
+
+        eff = delay(raiser).ensure(
+            delay(additional_raiser).catch_map(ValueError, lambda _: None)
+        )
+        with self.assertRaises(TypeError):
+            run(eff)
 
     def test_contract_violation(self):
         eff = delay(lambda: 0).bind(lambda v: v + 1)

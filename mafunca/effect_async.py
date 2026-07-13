@@ -356,7 +356,7 @@ def delay_to_thread_t(fn: Callable[[], Result[A, E]]) -> EffectAsyncT[A, E]:
         Wraps a SYNCHRONOUS function for delayed execution in a separate thread
         :raises MonadError: coroutine functions are not allowed
     """
-    panic_on_coroutine(fn, EffectAsyncT.__name__, 'delay_to_thread')
+    panic_on_coroutine(fn, EffectAsyncT.__name__, 'delay_to_thread_t')
     return EffectAsyncT(DelayThreadAsync(fn))
 
 

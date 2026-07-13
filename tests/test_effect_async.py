@@ -110,7 +110,7 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
         async def raiser():
             raise TypeError("test raise")
 
-        def catcher_raiser():
+        async def catcher_raiser():
             raise ValueError("test catcher raise")
 
         eff = delay(raiser).catch_bind(TypeError, lambda _: delay(catcher_raiser))
@@ -161,6 +161,11 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
             nonlocal glb
             glb += 1
 
+        def plus_one(v):
+            async def plus_one_inner():
+                return v + 1
+            return plus_one_inner
+
         eff = delay(raiser).bind(lambda v: pure(v + 1).ensure(delay(increase)))
         with self.assertRaises(TypeError):
             await run_async(eff)
@@ -174,7 +179,7 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
         eff = (
             pure(0)
             .bind(lambda v: (
-                delay(lambda: v + 1)
+                delay(plus_one(v))
                 .bind(lambda vn: pure(vn).bind(lambda _: delay(raiser)))
             ))
             .ensure(delay(increase))
@@ -182,6 +187,10 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(TypeError):
             await run_async(eff)
         self.assertEqual(glb, 2)
+
+        eff = delay(raiser).catch_bind(TypeError, lambda _: pure(1).ensure(delay(increase)))
+        self.assertEqual(await run_async(eff), 1)
+        self.assertEqual(glb, 3)
 
     async def test_ensure_with_errors(self):
         async def raiser():
@@ -208,6 +217,12 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(await run_async(eff), 1)
         self.assertEqual(glb, 1)
+
+        eff = delay(raiser).ensure(
+            delay(additional_raiser).catch_map(ValueError, lambda _: None)
+        )
+        with self.assertRaises(TypeError):
+            await run_async(eff)
 
     async def test_contract_violation(self):
         eff = pure(0).bind(lambda v: v + 1)

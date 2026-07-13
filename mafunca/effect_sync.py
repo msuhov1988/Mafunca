@@ -255,7 +255,7 @@ def delay_t(fn: Callable[[], Result[A, E]]) -> EffectSyncT[A, E]:
         Wraps a SYNCHRONOUS function for delayed execution.
         :raises MonadError: coroutine functions are not allowed
     """
-    panic_on_coroutine(fn, EffectSyncT.__name__, 'delay')
+    panic_on_coroutine(fn, EffectSyncT.__name__, 'delay_t')
     return EffectSyncT(Delay(fn))
 
 
@@ -281,7 +281,7 @@ def retry_t(
     :raises MonadError: coroutine functions are not allowed
     :raises ValidationError: errors in basic validation of passed arguments
     """
-    panic_on_coroutine(fn, EffectSyncT.__name__, 'retry')
+    panic_on_coroutine(fn, EffectSyncT.__name__, 'retry_t')
     return EffectSyncT(
         Retry(
             thunk=fn,
