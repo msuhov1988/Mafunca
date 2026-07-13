@@ -394,6 +394,12 @@ class TestEffectSync(unittest.TestCase):
         eff = pure_t(5).map(lambda v: v + 5).bind(inner_first_chain)
         self.assertEqual(run(eff).value, 101)
 
+    def test_stack_safety(self):
+        eff = pure(0)
+        for _ in range(10_000):
+            eff = eff.bind(lambda v: pure(v + 1))
+        self.assertEqual(run(eff), 10_000)
+
 
 if __name__ == '__main__':
     unittest.main()

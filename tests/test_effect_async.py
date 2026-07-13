@@ -468,6 +468,12 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
             await run_async(eff)
         self.assertEqual(glb, 1)
 
+    async def test_stack_safety(self):
+        eff = pure(0)
+        for _ in range(10_000):
+            eff = eff.bind(lambda v: pure(v + 1))
+        self.assertEqual(await run_async(eff), 10_000)
+
 
 if __name__ == '__main__':
     unittest.main()
