@@ -7,8 +7,8 @@ from test_result import TestResult
 from test_maybe import TestMaybe
 from test_result_transformer import TestResultMaybeT
 from test_maybe_transformer import TestMaybeResultT
-from test_side import TestSide
-from test_side_async import TestAsyncSide
+from test_effect_sync import TestEffectSync
+from test_effect_async import TestEffectAsync
 
 
 def add_tests_for_class(suite, test_class):
@@ -27,8 +27,8 @@ if __name__ == "__main__":
         TestMaybe,
         TestResultMaybeT,
         TestMaybeResultT,
-        TestSide,
-        TestAsyncSide,
+        TestEffectSync,
+        TestEffectAsync,
     ]
     for test_cls in tests:
         add_tests_for_class(test_suite, test_cls)
