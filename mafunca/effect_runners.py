@@ -6,10 +6,12 @@ from typing import TypeVar, ParamSpec, Generic, overload, Any
 
 from mafunca.common.exceptions import RetryByExceptionError, RetryByValueError, RetryBadPauseError, MonadError
 from mafunca.result import Ok, Err, Result
-from mafunca.effect_sync import EffectSync, EffectSyncT
+from mafunca.effect_sync import EffectSync
+from mafunca.effect_sync_transformer import EffectSyncT
 from mafunca.effect_sync import Pure, Delay, Retry  # noqa
 from mafunca.effect_sync import Bind, Catch, Ensure  # noqa
-from mafunca.effect_async import EffectAsync, EffectAsyncT
+from mafunca.effect_async import EffectAsync
+from mafunca.effect_async_transformer import EffectAsyncT
 from mafunca.effect_async import PureAsync, DelayAsync, DelayThreadAsync, RetryAsync  # noqa
 from mafunca.effect_async import BindAsync, CatchAsync, EnsureAsync  # noqa
 
@@ -82,7 +84,7 @@ async def _async_perform(
         else:
             async with asyncio.timeout(delay=wait_seconds):
                 return Ok(await fn())
-    except (Exception, TimeoutError) as err:
+    except (Exception, TimeoutError, asyncio.CancelledError) as err:
         return Err(err)
 
 
@@ -90,7 +92,7 @@ async def _async_perform_thread(fn: Callable[[], A]) -> Result[A, Exception]:
     try:
         result = await asyncio.to_thread(fn)
         return Ok(result)
-    except Exception as err:
+    except (Exception, asyncio.CancelledError) as err:
         return Err(err)
 
 

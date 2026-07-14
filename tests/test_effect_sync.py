@@ -4,7 +4,9 @@ from mafunca.common.exceptions import MonadError
 from mafunca.common.exceptions import ValidationError, RetryBadPauseError, RetryByExceptionError, RetryByValueError
 from mafunca.result import Ok, Err
 from mafunca.effect_sync import pure, delay, retry
-from mafunca.effect_sync import pure_t, error_t, delay_t, retry_t, lift_effect_t, lift_result_t
+from mafunca.effect_sync_transformer import pure as lift_pure, lift_error
+from mafunca.effect_sync_transformer import delay as delay_t, retry as retry_t
+from mafunca.effect_sync_transformer import lift_effect, lift_result
 from mafunca.effect_runners import run, run_safe
 
 
@@ -317,7 +319,7 @@ class TestEffectSync(unittest.TestCase):
         self.assertEqual(run(eff), 3)
 
     def test_transformer_pure_chains(self):
-        eff = pure_t(0).map(lambda x: x + 1).map(lambda x: x + 1)
+        eff = lift_pure(0).map(lambda x: x + 1).map(lambda x: x + 1)
         self.assertEqual(run(eff).value, 2)
 
         res = run_safe(eff)
@@ -325,7 +327,7 @@ class TestEffectSync(unittest.TestCase):
         self.assertTrue(res.value.is_ok)
         self.assertEqual(res.value.value, 2)
 
-        eff = pure_t(0).map_result(lambda x: Ok(x + 1)).map(lambda x: x + 1)
+        eff = lift_pure(0).map_result(lambda x: Ok(x + 1)).map(lambda x: x + 1)
         self.assertEqual(run(eff).value, 2)
 
         res = run_safe(eff)
@@ -334,7 +336,7 @@ class TestEffectSync(unittest.TestCase):
         self.assertEqual(res.value.value, 2)
 
     def test_transformer_bind_chains(self):
-        eff = pure_t(0).map(lambda x: x + 1).bind(lambda x: lift_result_t(Ok(x + 1)))
+        eff = lift_pure(0).map(lambda x: x + 1).bind(lambda x: lift_result(Ok(x + 1)))
         self.assertEqual(run(eff).value, 2)
 
         res = run_safe(eff)
@@ -343,7 +345,7 @@ class TestEffectSync(unittest.TestCase):
         self.assertEqual(res.value.value, 2)
 
     def test_transformer_inner_error(self):
-        eff = error_t(0).map(lambda x: x + 1).map(lambda x: x + 1)
+        eff = lift_error(0).map(lambda x: x + 1).map(lambda x: x + 1)
         self.assertTrue(run(eff).is_error)
         self.assertEqual(run(eff).error, 0)
 
@@ -352,7 +354,7 @@ class TestEffectSync(unittest.TestCase):
         self.assertTrue(res.value.is_error)
         self.assertEqual(res.value.error, 0)
 
-        eff = pure_t(0).map_result(lambda x: Err(x + 1)).map(lambda x: x + 1)
+        eff = lift_pure(0).map_result(lambda x: Err(x + 1)).map(lambda x: x + 1)
         self.assertTrue(run(eff).is_error)
         self.assertEqual(run(eff).error, 1)
 
@@ -363,7 +365,7 @@ class TestEffectSync(unittest.TestCase):
 
     def test_transformer_lift_effect(self):
         eff = pure(0).map(lambda x: x + 1).bind(lambda x: delay(lambda: x + 1))
-        t_eff = lift_effect_t(eff)
+        t_eff = lift_effect(eff)
         self.assertTrue(run(t_eff).is_ok)
         self.assertEqual(run(t_eff).value, 2)
 
@@ -391,7 +393,7 @@ class TestEffectSync(unittest.TestCase):
                 .bind(inner_second_chain)
             )
 
-        eff = pure_t(5).map(lambda v: v + 5).bind(inner_first_chain)
+        eff = lift_pure(5).map(lambda v: v + 5).bind(inner_first_chain)
         self.assertEqual(run(eff).value, 101)
 
     def test_stack_safety(self):

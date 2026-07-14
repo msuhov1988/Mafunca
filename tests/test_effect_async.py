@@ -5,7 +5,9 @@ from mafunca.common.exceptions import MonadError
 from mafunca.common.exceptions import ValidationError, RetryBadPauseError, RetryByExceptionError, RetryByValueError
 from mafunca.result import Ok, Err
 from mafunca.effect_async import pure, delay, retry
-from mafunca.effect_async import pure_t, error_t, delay_t, retry_t, lift_effect_t, lift_result_t
+from mafunca.effect_async_transformer import pure as pure_t, lift_error as error_t
+from mafunca.effect_async_transformer import delay as delay_t, retry as retry_t
+from mafunca.effect_async_transformer import lift_effect, lift_result
 from mafunca.effect_runners import run_async, run_safe_async
 
 
@@ -224,6 +226,21 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(TypeError):
             await run_async(eff)
 
+    async def test_ensure_runs_on_cancelled_error(self):
+        async def cancelled():
+            raise asyncio.CancelledError()
+
+        glb = 0
+
+        async def increase():
+            nonlocal glb
+            glb += 1
+
+        eff = delay(cancelled).ensure(delay(increase))
+        with self.assertRaises(asyncio.CancelledError):
+            await run_async(eff)
+        self.assertEqual(glb, 1)
+
     async def test_contract_violation(self):
         eff = pure(0).bind(lambda v: v + 1)
         with self.assertRaises(MonadError):
@@ -370,7 +387,7 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(res.value.value, 2)
 
     async def test_transformer_bind_chains(self):
-        eff = pure_t(0).map(lambda x: x + 1).bind(lambda x: lift_result_t(Ok(x + 1)))
+        eff = pure_t(0).map(lambda x: x + 1).bind(lambda x: lift_result(Ok(x + 1)))
         self.assertEqual((await run_async(eff)).value, 2)
 
         res = await run_safe_async(eff)
@@ -404,7 +421,7 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
             return plus_one_inner
 
         eff = pure(0).map(lambda x: x + 1).bind(lambda x: delay(plus_one(x)))
-        t_eff = lift_effect_t(eff)
+        t_eff = lift_effect(eff)
         self.assertTrue((await run_async(t_eff)).is_ok)
         self.assertEqual((await run_async(t_eff)).value, 2)
 
@@ -473,6 +490,41 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
         for _ in range(10_000):
             eff = eff.bind(lambda v: pure(v + 1))
         self.assertEqual(await run_async(eff), 10_000)
+
+    async def test_cancelled_error_not_catch(self):
+
+        async def cancelled():
+            raise asyncio.CancelledError()
+
+        glb = 0
+
+        async def increase():
+            nonlocal glb
+            glb += 1
+
+        eff = delay(cancelled).catch_bind(Exception, lambda _: delay(increase))
+        with self.assertRaises(asyncio.CancelledError):
+            await run_async(eff)
+        with self.assertRaises(asyncio.CancelledError):
+            await run_safe_async(eff)
+        self.assertEqual(glb, 0)
+
+    async def test_cancelled_error_catch_intentionally(self):
+
+        async def cancelled():
+            raise asyncio.CancelledError()
+
+        glb = 0
+
+        async def increase():
+            nonlocal glb
+            glb += 1
+
+        eff = delay(cancelled).catch_bind(asyncio.CancelledError, lambda _: delay(increase))
+        _ = await run_async(eff)
+        self.assertEqual(glb, 1)
+        _ = await run_safe_async(eff)
+        self.assertEqual(glb, 2)
 
 
 if __name__ == '__main__':
