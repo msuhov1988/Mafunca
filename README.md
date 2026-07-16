@@ -545,7 +545,8 @@ To initiate an effect, you need to use one of the module-level functions:
 - Everything that was described in a similar section for synchronous effects remains valid here,
   except for `asyncio.CancelledError`.  
   The library is available for python >= 3.11, and in these versions, `asyncio.CancelledError` is not a subtype of `Exception`.  
-  However, `ensure` will be executed when `asyncio.CancelledError`.   
+  However, `ensure` will be executed when an `asyncio.CancelledError` is thrown,
+  but if an error occurs in `ensure` itself, it will not replace the `asyncio.CancelledError` and will be lost.  
   Moreover, if you catch `asyncio.CancelledError` in `catch_` methods, despite the types in the signature and the fact that this is not recommended,
   the error will actually be caught.
 - Although this is a monad for asynchronous effects, asynchrony is only allowed in the `delay` and `retry` nodes. 

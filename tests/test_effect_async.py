@@ -526,6 +526,20 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
         _ = await run_safe_async(eff)
         self.assertEqual(glb, 2)
 
+    async def test_cancelled_error_not_replaced(self):
+
+        async def cancelled():
+            raise asyncio.CancelledError()
+
+        async def error_raiser():
+            raise TypeError("Error")
+
+        eff = delay(cancelled).ensure(delay(error_raiser))
+        with self.assertRaises(asyncio.CancelledError):
+            await run_async(eff)
+        with self.assertRaises(asyncio.CancelledError):
+            await run_safe_async(eff)
+
 
 if __name__ == '__main__':
     unittest.main()

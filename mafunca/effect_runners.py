@@ -177,7 +177,9 @@ def _enter_ensure_scope(finalizer: EffectSync[None] | EffectAsync[None], stack_o
 def _leave_ensure_scope(stack_of_scopes: list[_Scope]) -> _Scope:
     deleted_ensure_scope = stack_of_scopes.pop()
     parent_scope = stack_of_scopes[-1]
-    _set_new_primary_error(scope=parent_scope, new_error=deleted_ensure_scope.error)
+    # errors that are not subclasses of Exception are not replaced by finalizer errors
+    if parent_scope.error is None or isinstance(parent_scope.error, Exception):
+        _set_new_primary_error(scope=parent_scope, new_error=deleted_ensure_scope.error)
     return parent_scope
 
 
