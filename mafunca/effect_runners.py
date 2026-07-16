@@ -59,13 +59,13 @@ def _sync_perform_with_retry(node: Retry[A], previous_result: B, is_assigned: bo
             if not isinstance(either_result.error, node.retry_on_exceptions):
                 return either_result
 
-        either_pause: Result[int | float, Exception] = _sync_perform(node.pause_seconds_between, attempt)
-        if isinstance(either_pause, Err):
-            return either_pause
-        pause = either_pause.value
-        if not isinstance(pause, (int, float)) or pause < 0:
-            return _raise_and_wrap(RetryBadPauseError(node.step_name))
         if attempt < node.total_attempts:
+            either_pause: Result[int | float, Exception] = _sync_perform(node.pause_seconds_between, attempt)
+            if isinstance(either_pause, Err):
+                return either_pause
+            pause = either_pause.value
+            if not isinstance(pause, (int, float)) or pause < 0:
+                return _raise_and_wrap(RetryBadPauseError(node.step_name))
             sleep(pause)
 
     if isinstance(either_result, Err):
@@ -116,13 +116,13 @@ async def _async_perform_with_retry(
             if not isinstance(either_result.error, node.retry_on_exceptions):
                 return either_result
 
-        either_pause: Result[int | float, Exception] = _sync_perform(node.pause_seconds_between, attempt)
-        if isinstance(either_pause, Err):
-            return either_pause
-        pause = either_pause.value
-        if not isinstance(pause, (int, float)) or pause < 0:
-            return _raise_and_wrap(RetryBadPauseError(node.step_name))
         if attempt < node.total_attempts:
+            either_pause: Result[int | float, Exception] = _sync_perform(node.pause_seconds_between, attempt)
+            if isinstance(either_pause, Err):
+                return either_pause
+            pause = either_pause.value
+            if not isinstance(pause, (int, float)) or pause < 0:
+                return _raise_and_wrap(RetryBadPauseError(node.step_name))
             await asyncio.sleep(pause)
 
     if isinstance(either_result, Err):

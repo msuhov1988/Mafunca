@@ -88,8 +88,8 @@ class DelayAsync(Generic[A], EffectAsync[A]):
             wait_seconds: int | float | None
     ):
         if wait_seconds is not None:
-            if not isinstance(wait_seconds, (int, float)) or wait_seconds <= 0:
-                raise ValidationError("wait_seconds must be a positive number")
+            if not isinstance(wait_seconds, (int, float)) or wait_seconds < 0:
+                raise ValidationError("wait_seconds must be a non-negative number")
         self.thunk = thunk
         self.wait_seconds = wait_seconds
 
