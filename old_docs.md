@@ -1,0 +1,703 @@
+[![PyPI version](https://img.shields.io/pypi/v/mafunca.svg)](https://pypi.org/project/mafunca/)
+[![Python versions](https://img.shields.io/pypi/pyversions/mafunca.svg)](https://pypi.org/project/mafunca/)
+[![License](https://img.shields.io/pypi/l/mafunca.svg)](https://pypi.org/project/mafunca/)
+
+# Some useful things from the world of functional programming for python
+
+### The goal is not to cover "everything" about functional programming, but to provide some useful things in the most practical way (at least from the author's perspective)
+### The library is minimalistic and has no dependencies 
+### Provides advanced, feature-rich currying decorators
+### Resilient effects
+### Emphasizes strict adherence to contracts and a clear separation between synchronous and asynchronous operations.
+
+### [Installiation](#installation)
+- [Install mafunca](#install-mafunca)
+
+### [Simple monads on value](#simple-monads-on-value)
+- [Description](#description)
+- [Method table](#method-table)
+- [Examples](#examples)
+- [Additional functions](#additional-functions)
+
+### [Effects](#effects)
+- [Description of effects](#description-of-effects)
+- [Effect methods](#effect-methods)
+- [Effect examples](#effect-examples)
+
+### [Resilient effects](#resilient-effects)
+- [Description of resilient effects](#description-of-resilient-effects)
+- [Resilient chained methods](#resilient-chained-methods)
+- [Resilient effect example](#resilient-effect-example)
+- [Resilient limitations](#resilient-limitations)
+
+### [Currying](#currying)
+- [Description of currying](#description-of-currying)
+- [Currying examples](#currying-examples)
+
+### [Exceptions](#exceptions)
+- [Description of exceptions](#description-of-exceptions)
+
+## Installation
+### Install mafunca
+```
+pip install mafunca
+```
+```
+python -m pip install mafunca
+```
+
+## Simple monads on value
+### Description
+These are well-known monads such as **Maybe**, **Either** or **Optional**, **Result**.  
+One monad is implemented here, which **contains three states at once**:
+
+- **Right**   - contains a successful result inside
+- **Left**    - contains some kind of erroneous result inside 
+- **Nothing** - an empty space that does not contain any data
+
+They are all descendants of the abstract class **Triple** and have identical interfaces, including method signatures.  
+**FEATURE**: you can use all three possible states in a single function chain without having to resort to any tricks like transformers and etc.  
+**IMPORTANT**: Since this is a monad over a value (already available!) - only synchronous functions are allowed. Consider lazy monads for asynchronous functions.
+
+```python
+from mafunca.triple import Right, Left, Nothing
+```
+
+### Method table:
+#### ++ - a passed function can return both - Triple monads and other values
+  | Method                               | Description                                                                                | Right                                                                              | Left                                          | Nothing                                       |
+  |--------------------------------------|--------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------|-----------------------------------------------|-----------------------------------------------|
+  | **.is_right**                        | Property - boolean flag                                                                    | `True`                                                                             | `False`                                       | `False`                                       |
+  | **.is_nothing**                      | Property - boolean flag                                                                    | `False`                                                                            | `False`                                       | `True`                                        |
+  | **.map(fn)**                         | fn - function that returns a NON-Triple value                                              | applies, wraps the result                                                          | returns itself                                | returns itself                                |
+  | **.bind(fn)**                        | fn - function that returns a Triple value                                                  | applies                                                                            | returns itself                                | returns itself                                |
+  | **.recover_from_left(fn) ++**        | fn - function for recover from error                                                       | returns itself                                                                     | applies, wraps non-Triple result in the Right | returns itself                                |
+  | **.recover_from_nothing(fn) ++**     | fn - function without params for recover from emptiness                                    | returns itself                                                                     | returns itself                                | applies, wraps non-Triple result in the Right |
+  | **.unfold(*, right, left, nothing)** | Applies a function without wrapping the result. As a rule, it completes the chain.         | applies 'right' function                                                           | applies 'left' function                       | applies 'nothing' function                    |
+  | **.get_or_else(value)**              | Returns an internal or passed value                                                        | returns internal                                                                   | returns passed                                | returns passed                                |
+  | **.ap(wrapped_val)**                 | wrapped_val - value enclosed in a Triple. Itself must be Right[function] or Left, Nothing. | applies wrapped_val to the internal function. Wraps non-Triple result in the Right | returns itself                                | returns itself                                |
+
+### Examples
+#### A "philosophical" example:
+Let's say you call three functions, passing the results sequentially:
+```python
+result1 = f1(init_val)
+result2 = f2(result1)
+total = f3(result2)
+```
+But what if each of these functions can throw an exception or return **None**?  
+How can we combine them without confusing checks, external **try except** blocks, or repeated exception throws?  
+We can extend the standard **try except** mechanism in each of the functions as follows:
+
+```python
+from mafunca.triple import Right, Left, Nothing
+
+# inside a function
+try:
+    return Right(some_inner_operation(arg))
+except YourException as exc:
+    return Left(exc)   
+```
+Replace explicit **None** returns:
+```python
+# inside a function
+return None       # it was
+return Nothing()  # become
+```
+Or combine both approaches at once:
+
+```python
+from mafunca.triple import Right, Left, Nothing
+from mafunca.triple import TUtils
+
+# inside a function
+try:
+    return TUtils.from_nullable(some_inner_operation(arg))
+except YourException as exc:
+    return Left(exc)   
+```
+Now we can write the following chain:
+```python
+# each of the functions now returns a Triple, so I'm using the 'bind' method
+monadic_total = (
+    Right(init_val)
+    .bind(f1)
+    .bind(f2)
+    .bind(f3)
+)
+total = monadic_total.unfold(
+    right=function_handle,
+    left=function_notify_and_log,
+    nothing=function_inaction
+)
+```
+Or using recovery methods:
+```python
+monadic_total = (
+    Right(init_val)
+    .bind(f1)
+    .bind(f2)
+    .bind(f3)
+    .recover_from_left(error_handler)
+    .recove_from_nothing(emptiness_handler)
+)
+
+# since I know that Left and Nothing are processed
+# I can only leave the 'right' case here
+# leaving the default handlers for 'left' and 'nothing'
+total = monadic_total.unfold(right=function_handle)
+```
+
+#### A "humorous" example:
+```python
+# for some reason I only want to process integers, skipping everything else
+def joke(incoming):
+    if isinstance(incoming, int):
+        return Right(incoming)
+    return Nothing()
+
+# lambda returns non-Triple value, so I'm using the 'map' method
+# let's assume that 'send_data' is a function that sends data somewhere
+joke(100).map(lambda v: v + 1).unfold(right=send_data)    # ok, 101 has been sent
+joke("Abc").map(lambda v: v + 1).unfold(right=send_data)  # no data has been sent
+```
+
+#### An applicative example:
+How can we apply a monadic "short circuit" to a function with multiple arguments?
+```python
+def summa(a: int, b: int, c: int) -> int:
+    return a + b + c
+```
+I want to make this function able to apply values wrapped in **Triple** 
+and still terminate in a "short-circuit" fashion if one of the arguments is **Left** or **Nothing**.  
+Let's rewrite it in the 'curried' form:
+```python
+def summa(a: int):
+    def summa_second(b: int):
+        def summa_third(c: int):
+            return a + b + c
+        return summa_third  
+    return summa_second   
+```
+To avoid doing this manually, the library provides a special module:
+```python
+from mafunca.curry import curry, async_curry  # async_curry - for async functions
+
+@curry
+def summa(a: int, b: int, c: int) -> int:
+    return a + b + c
+```
+
+Now, by wrapping the function in the **Right** container, I can use the **ap** method:
+
+```python
+from mafunca.curry import curry
+from mafunca.triple import Right, Left, Nothing
+
+
+@curry
+def summa(a: int, b: int, c: int) -> int:
+    return a + b + c
+
+
+# NOTE: after each 'ap' method, a partially applied function is added to the container
+Right(summa).ap(Right(1)).ap(Right(2)).ap(Right(3))  # Right(6)
+
+Right(summa).ap(Left("Error")).ap(Right(2)).ap(Right(3))  # Left("Error")
+Right(summa).ap(Right(1)).ap(Right(2)).ap(Nothing())  # Nothing()
+```
+Again, there is a special function to avoid writing such chains manually:
+
+```python
+from mafunca.curry import curry
+from mafunca.triple import Right, Left, Nothing, TUtils
+
+
+@curry
+def summa(a: int, b: int, c: int) -> int:
+    return a + b + c
+
+
+TUtils.lift(summa, Right(1), Right(2), Right(3))  # Right(6)
+```
+It is possible without currying at all:
+
+```python
+from mafunca.triple import Right, Left, Nothing, TUtils
+
+
+@TUtils.closer
+def summa(a: int, b: int, c: int) -> int:
+    return a + b + c
+
+
+summa(1, 2, 3)  # 6
+summa(Right(1), Right(2), 3)  # 6
+summa(Left("err"), Right(2), Right(3))  # Left('err')
+summa(Right(1), Nothing(), Right(3))  # Nothing()
+```
+
+### Additional functions
+
+```python
+from mafunca.triple import TUtils, Right, Left, Nothing
+from mafunca.triple import impure, is_impure
+
+
+# if you want to dive even deeper into FP
+# you can mark functions that have side effects
+# and their execution in Triple monad methods will be prohibited
+@impure
+def some_side_effect(arg): ...
+
+
+is_impure(some_side_effect)  # True
+Right(1).map(some_side_effect)  # raise MonadError 
+
+TUtils.of(1)  # Right(1)
+
+TUtils.from_nullable(None)  # Nothing
+TUtils.from_nullable({"a": 1}, predicate=lambda d: d.get("a"))  # Right
+TUtils.from_nullable({"a": 1}, predicate=lambda d: d.get("b"))  # Nothing
+TUtils.from_nullable(None, predicate=lambda a: a is None)  # Right !!!
+
+
+@TUtils.from_try
+def raiser():
+    raise TypeError("error")
+
+
+raiser()  # Left(TypeError)
+TUtils.from_try(lambda a: a + 1)(0)  # Right(1)
+
+TUtils.is_triple(10)  # False
+TUtils.is_triple(Right(1))  # True
+TUtils.is_triple(Left("err"))  # True
+TUtils.is_triple(Nothing())  # True
+
+TUtils.is_bad(Left("err"))  # True
+TUtils.is_bad(Nothing())  # True
+TUtils.is_bad(Right(1))  # False
+TUtils.is_bad(10)  # False
+
+TUtils.lift  # see previous chapter - an applicative example
+TUtils.closer  # see previous chapter - an applicative example
+```
+
+## Effects
+### Description of effects
+These are well-known **LAZY** monads such as **IO**.  
+It contains not a value, but a function of the form **Callable[[], R]**, which we will call an effect.  
+Why laziness?  
+It allows you to describe side effects within a regular function, keeping it 'pure':
+
+```python
+from mafunca.triple import impure
+from mafunca.eff_sync import EffSync
+from mafunca.eff_sync import DefaultBad  # Left | Nothing, type alias
+
+
+@impure
+def database_communication(number: int): ...
+
+
+@impure
+def smtp_communication(addresses): ...
+
+
+# this function remains 'pure'
+def ordinary_function(a: int) -> EffSync[None, DefaultBad]:
+    result = a ** 2
+    return (
+        EffSync(lambda: result)
+        .map(database_communication)
+        .bind(lambda addr: EffSync(lambda: smtp_communication(addr)))
+    )
+
+
+eff = ordinary_function(10)
+eff.run()  # performing side effects
+```
+This way, we separate the description of effects from their execution.  
+
+Two monads are implemented here:
+- **Eff**   - for asynchronous effects, but it can also work with synchronous functions
+- **EffSync**    - strictly for synchronous effects 
+
+**FEATURE**: Effects work with "bad" instances of the 'Triple' monad using the short-circuit principle (see examples below)
+
+```python
+from mafunca.eff import Eff
+from mafunca.eff_sync import EffSync
+```
+
+### Effect methods
+#### REMINDER: EffSync only works with synchronous functions, and Eff can accept any
+#### **++** - a passed function can return both - monads of the same type and other values
+| Method                  | Description                                                                                                                    | Eff                                                                                                       | EffSync                            |
+|-------------------------|--------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|------------------------------------|
+| **.map(fn)**            | fn - a function that returns a NON-effect container (NON-Eff for Eff, NON-EffSync for EffSync)                                 | returns new Eff                                                                                           | returns new EffSync                |
+| **.map_to_thread(fn)**  | the same as **map**, but function must be strictly sync and it is executed in a separate thread                                | returns new Eff                                                                                           | -                                  |
+| **.bind(fn)**           | fn - a function that returns the same container type                                                                           | returns new Eff                                                                                           | returns new EffSync                |
+| **.bind_to_thread(fn)** | the same as **bind**, but function INSIDE THE RETURNED CONTAINER must be strictly sync and it is executed in a separate thread | returns new Eff                                                                                           | -                                  |
+| **.catch(fn) ++**       | Intercepts errors. **fn** - function of the form **Callable[[Exc], R]**, where **Exc** - subtype of **Exception**              | returns new Eff                                                                                           | returns new EffSync                |
+| **.ensure(fn)**         | Acts like **finally**. **fn** - function without parameters and a return value (returns None)                                  | returns new Eff                                                                                           | returns new EffSync                |
+| **.to_task()**          | Wraps the inner effect into a Task. Inner effect must be a coroutine function.                                                 | returns asyncio.Task                                                                                      | -                                  | 
+| **.run()**              | Performs a chain of effects. This method is **async** in **Eff** and has an optional **delay** parameter.                      | returns the result of inner effect or throws a **TimeOutError** when the wait exceeds the specified delay | returns the result of inner effect |
+| **.of(value)**          | Static method - only for 'good' values                                                                                         | returns Eff(lambda: value)                                                                                | returns EffSync(lambda: value)     |
+| **.from_result(value)** | Static method - the same as **of**, but for 'good' and 'bad' values                                                            | returns Eff(lambda: value)                                                                                | returns EffSync(lambda: value)     | 
+
+### Effect examples
+#### The examples are "toy-like", but they reflect the essence
+
+```python
+import asyncio
+from typing import Never
+
+from mafunca.eff import Eff
+from mafunca.eff import DefaultBad  # Left | Nothing
+from mafunca.eff_sync import EffSync
+from mafunca.eff_sync import DefaultBad as DefaultBadSync  # Left | Nothing
+from mafunca.triple import Left, Nothing
+
+# short circuit on bad Triple entity
+eff: EffSync[int, DefaultBadSync] = (
+    EffSync.of(0)
+    .map(lambda v: Left('error') if v == 0 else Nothing())
+    .bind(lambda x: EffSync(lambda: x + 1))
+    .bind(lambda x: EffSync(lambda: x + 1))
+)
+eff.run()  # Left(error)
+
+
+async def raiser():
+    raise TypeError("error")
+
+
+async_eff: Eff[int, Never] = Eff(raiser).catch(lambda e: 10)
+asyncio.run(async_eff.run())  # 10, async_eff.run - async method
+
+async_eff: Eff[None, Never] = Eff(raiser).ensure(lambda: print("finally"))
+asyncio.run(async_eff.run())  # the word will be printed despite the uncaught exception
+```
+
+## Resilient effects
+### Description of resilient effects
+These effects are a further development of **Eff** and **EffSync**, but with some deviations from the classical model.  
+By default, **Eff** and **EffSync** short-circuit 'bad' **Triple** instances, pushing these values up until the calculation is complete.  
+This greatly increases the reliability of the functional chain:
+```python
+from mafunca.eff import Eff
+
+# if I catch all errors or nulls reliably in func1 and return Left or Nothing
+# I don't need to worry about invalid values being passed to further functions
+Eff.of(value).map(func1).map(func2).map(func3)...
+```
+It is quite logical to demand further improvements from such a monad(a monad-like abstraction, to be more precise):
+- instead of just returning a 'bad' **Triple** entity, it should also return a reference to the 'bad' function and the last successful result
+- let it return a **shortened chain from the point of failure** so that it can be restarted
+  without repeating the steps that were successfully completed (within the same running process, of course)
+- let it **catch all errors** by returning a **special object** that indicates that this is an exception that we did not catch. For such an object, let it:
+    - also makes a short circuit
+    - also returns a reference to the failed function, last successful result and a **shortened chain from the point of failure**
+    - this **special object** must be able to throw origin exception(for debugging purposes, for example)
+- let it allows to run the chain partially by specifying the number of steps (this can be useful for testing, for example)
+
+Thus, this abstraction ensures that each function that runs without errors will not be called again,
+including within nested chains, regardless of the number of recovery attempts.
+
+All of this can be useful, given that effectful monads often contain functions that make requests to external systems.  
+In such scenarios, it is not uncommon for errors to be caused by external factors rather than our code, and they may be temporary in nature.  
+The resilient effects implemented here have this set of **FEATURES**.  
+
+Usage:
+
+```python
+# STRICTLY for synchronous effects
+from mafunca.resilient_sync import ResilientSync
+from mafunca.resilient_sync import of, from_result, from_func, insist
+
+from mafunca.triple import Left, Nothing
+from mafunca.common.resilient_support import Uncaught  # a special object that wraps unexpected exceptions
+from mafunca.resilient_sync import DefaultBad  # Left | Nothing | Uncaught, type alias
+```
+```python
+# for asynchronous effects, but it can also work with synchronous functions
+from mafunca.resilient import Resilient
+from mafunca.resilient import of, from_result, from_func, insist
+from mafunca.resilient import DefaultBad  # Left | Nothing | Uncaught, type alias
+``` 
+**Recommendation**: Use **ResilientSync** and **Resilient** classes only for typing purposes. A typical usage pattern:
+```python
+# everything is the same for the synchronous module
+from typing import Never, Any
+from mafunca.resilient import of, from_result, from_func, Resilient
+from mafunca.resilient import DefaultBad
+
+# of - only 'good' values are expected
+prime_one: Resilient[int, Never] = of(10)                   # Resilient(lambda: 10)
+
+# from_result - for 'good' and 'bad' values
+prime_two: Resilient[int, Never] = from_result(10)          # Resilient(lambda: 10)
+
+prime_three: Resilient[int, Never] = from_func(lambda: 10)  # Resilient(lambda: 10)
+
+
+# So, you do not need to use these classes directly.
+resilient1: Resilient[Any, DefaultBad] = of(some_value).chain(...).chain(...)
+resilient2 = from_func(some_function).chain(...).chain(...) 
+```
+Calling the **run** method for such monads always returns a special object instead of a direct result:
+```python
+from mafunca.common.resilient_support import Report, Uncaught
+
+# somewhere inside the asynchronous context ...
+
+# normal start, as in a classic monad
+# no additional actions in this case
+report1 = await resilient1.run()
+isinstance(report1, Report)      # True
+report1.result                   # direct result or Uncaught object
+report1.chain_from_failure       # None
+report1.faulty                   # None
+report1.last_success             # None
+report1.is_ok                    # True (chain_from_failure is None)
+report1.contains_an_uncaught     # False or True (whether the result is an Uncaught object)
+
+# restore the shortened chain(on failure) and identify the source of the failure
+report2 = await resilient2.run(rebuild=True)
+isinstance(report2, Report)      # True
+report2.result                   # direct result or Uncaught object
+report2.chain_from_failure       # restored chain or None
+report2.faulty                   # callable or None (source of the failure)
+report2.last_success             # last successful or report2.result on normal completion
+report2.is_ok                    # False or True (chain_from_failure is not or is None)
+report2.contains_an_uncaught     # False or True (whether the result is an Uncaught object)
+
+# partial execution
+report3 = await resilient3.run(steps=3)
+report4 = await resilient4.run(rebuild=True, steps=3) # restores only a partial chain
+
+# an object that contains an exception that was not caught by user code
+exc = Uncaught(SomeUncaughtException)
+exc.error    # SomeUncaughtException
+exc.throw()  # raise SomeUncaughtException
+```
+### Resilient chained methods
+| Method                                                                         | Description                                                                                                    | resilient module          | resilient_sync module         |
+|--------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------|---------------------------|-------------------------------|
+| **.chain(fn)**                                                                 | combines both **map** and **bind** methods of regular monads                                                   | returns new ResilientCont | returns new ResilientSyncCont |
+| **.catch(fn)**                                                                 | Catches errors. **fn** - function of the form **Callable[[Exc], R]**, where **Exc** - subtype of **Exception** | returns new ResilientCont | returns new ResilientSyncCont |
+| **.ensure(fn)**                                                                | Acts like **finally**. **fn** - function without parameters and a return value (returns None)                  | returns new ResilientCont | returns new ResilientSyncCont |
+| **.to_task(rebuild: bool = False)**                                            | Wraps the inner effect into a Task. Parameter 'rebuild' the same as in **run** method                          | returns asyncio.Task      | -                             |
+| **.run(rebuild: bool = False, steps: Optional[int] = None)**                   | Performs a chain of effects. **rebuild=True** - restore the shortened chain(on failure).                       | -                         | returns Report object         |
+| **async .run(rebuild: bool = False, steps: Optional[int] = None, delay=None)** | The same as sync **run**. **delay** - uses the **asyncio.timeout** mechanism to limit execution time           | returns Report object     | -                             |
+
+#### Module function **'insist'**:
+  | Module         | Signature                                                               | Description                                                                                                          |
+  |----------------|-------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------|
+  | resilient_sync | **insist(resilient, attempts, pause_between)**                          | Makes 'attempts' to execute a 'resilient' chain with 'pause_between' intervals between them                          |
+  | resilient      | **async insist(resilient, attempts, delay_for_attempt, pause_between)** | Makes 'attempts' with 'delay_for_attempt' to execute a 'resilient' chain with 'pause_between' intervals between them |
+
+### Resilient effect example
+#### A decorative example:
+```python
+from mafunca.resilient_sync import of, insist
+
+def malfunction():
+    counter = 0
+
+    def malfunction_inner(value):
+        nonlocal counter
+        counter += 1
+        if counter < 3:
+            raise TypeError("it's too early")
+        return value ** 2
+
+    return malfunction_inner
+
+
+def step_one(value):
+    print("one")
+    return value + 1
+
+
+def step_two(value):
+    print("two")
+    return value + 1
+
+
+def step_final(value):
+    print("final")
+    return (value,)
+
+
+fail = malfunction()
+resilient = of(0).chain(step_one).chain(step_two).chain(fail).chain(step_final)
+
+report = resilient.run(rebuild=True)
+report.last_success   # 2
+report = report.chain_from_failure.run(rebuild=True)
+report.last_success   # 2
+report = report.chain_from_failure.run(rebuild=True)
+report.last_success   # (4,)
+print(report.result, report.last_success, report.is_ok)
+```
+Console output:
+```
+# notice that 'one' and 'two' are printed only once,
+# because we repeat the chain from the point of failure, not from the beginning
+one
+two
+final
+(4,) (4,) True
+```
+Or even shorter:
+```python
+report = insist(resilient, attempts=3)
+# the output to the console will be the same
+```
+
+### Resilient limitations
+- Of course, you must ensure that the shortened chain is safe to run. Resilient chains do not require total idempotence of functions. BUT! Functions must be idempotent in case of an error.
+  They should not leave any "traces" if an error occurs, for example.
+- Be careful with the **.ensure** method - it is always executed. This means that it will also be executed in the shortened chain again  if it enters it.
+
+## Currying
+### Description of currying
+Examples of currying and the benefits that this approach can provide are given in the section on simple monads - an applicative example.  
+This library implements powerful and flexible curry decorators.
+#### FEATURES:
+- Preserving the signature requirements of the original function (only positional or only named arguments, for example)
+- Fail fast. The incorrectness of the passed arguments is evaluated not at the final call of the original function, but at each step(without calling the original function).
+- Flexible support for default values.
+- Support for variable arguments of the form *args , **kwargs.
+- The ability to use positional and/or named arguments in any quantity or combination.
+- The arguments that haven't been supplied yet are clearly visible in the debug print
+
+### Currying examples
+#### Preserving the signature requirements:
+```python
+from mafunca.curry import curry
+
+@curry
+def for_curry(a, *, b):
+    return a + b
+
+# second arg is only named
+for_curry(1)(2)    # CurryBadArguments: for_curry - too many positional arguments
+for_curry(1)(b=2)  # ok, 3
+```
+#### Fail fast:
+```python
+from mafunca.curry import curry
+
+@curry
+def for_curry(a, b):
+    return a + b
+
+for_curry(c=1)  # CurryBadArguments: for_curry - got an unexpected keyword argument 'c'
+
+```
+#### Default values and combinations of positional and named arguments:
+```python
+from mafunca.curry import curry
+@curry
+def for_curry(a: int, b: int, c: int = 0, d: int = 0) -> list[int]:
+    return [a, b, c, d]
+
+for_curry(1)(2)(3)(4)          # [1, 2, 3, 4]
+for_curry(a=1)(b=2)(c=3, d=4)  # [1, 2, 3, 4]
+
+# applying all default values
+for_curry(1)(2)()      # [1, 2, 0, 0]
+for_curry()(b=2, a=1)  # [1, 2, 0, 0]
+
+# applying default values does not override previously set values(which have defaults)
+for_curry(1, 2)(c=3)() # [1, 2, 3, 0]
+for_curry(1, 2)(d=3)() # [1, 2, 0, 3]
+```
+#### Working with *args, **kwargs:
+```python
+from mafunca.curry import curry
+
+@curry
+def for_curry(a: int, b: int, *args, **kwargs) -> list:
+    return [a, b, args, kwargs]
+
+res = for_curry(1, b=2)
+callable(res)   # True - expects at least one positional and one named argument
+res = res(0, 0)       # passing two positional arguments to *args
+callable(res)   # True - still waiting for at least one named argument
+
+# passing one named arg and launch original function
+res(another=10)       # [1, 2, (0, 0), {'another': 10}]
+
+res2 = for_curry(a=1)(b=2)
+# a special method that allows you to run a function
+# without passing anything for *args and **kwargs
+res2.run_for_var()    # [1, 2, (), {}]
+```
+#### Debug print:
+```python
+from mafunca.curry import curry
+
+@curry
+def test(a, b=0, *args, c=10, **kwargs):
+    return [a, b, c, args, kwargs]
+
+
+cr1 = test(1, c=100)
+print(cr1)       # __main__.Curry(<function test at ...>, 1, c=100)(b=0, *args, **kwargs)
+cr2 = cr1()     
+print(cr2)       # __main__.Curry(<function test at ...>, 1, 0, c=100)(*args, **kwargs)
+cr3 = cr2(9, 9)  
+print(cr3)       # __main__.Curry(<function test at ...>, 1, 0, 9, 9, c=100)(**kwargs)
+```
+#### Async currying:
+```python
+import asyncio
+from mafunca.curry import curry
+
+@curry
+async def for_curry(a: int, b: int, c: int = 0, d: int = 0) -> list[int]:
+    await asyncio.sleep(0)
+    return [a, b, c, d]
+
+
+async def main():
+    res1 = for_curry(1)
+    res2 = res1(2)
+    res3 = res2(3)
+    res4 = res3(4)
+    print(res4)  # <coroutine object for_curry at ...>
+    await res4   # [1, 2, 3, 4]
+
+    res5 = for_curry()
+    res6 = await res5(b=2, a=1)  # [1, 2, 0, 0]
+
+asyncio.run(main())
+```
+#### Link to the original function:
+```python
+from mafunca.curry import curry
+
+@curry
+def test(a, b):
+    return a + b
+
+print(test)         # __main__.Curry(<function test at 0x000001E94746E5C0>)
+print(test.origin)  # <function test at 0x000001E94746E5C0>
+```
+
+## Exceptions
+### Description of exceptions
+```python
+import mafunca.common.exceptions
+```
+- **MonadError** - thrown when monadic contracts are violated. It is not recommended to catch.  
+  It is not caught in **TUtils.from_try**, nor in methods of the **.catch** type. Separated - not in the error hierarchy of this library.
+- **BaseLibError** - base library level exception
+- **ImpureMarkError(BaseLibError)** - throws on a failed attempt to mark a function as impure
+- **CurryBadFunctionError(BaseLibError)** - thrown when the 'curried' function is not suitable
+- **CurryBadArguments(BaseLibError)** - thrown when the passed arguments for the function are incorrect

@@ -65,7 +65,8 @@ def _sync_perform_with_retry(node: Retry[A], previous_result: B, is_assigned: bo
         pause = either_pause.value
         if not isinstance(pause, (int, float)) or pause < 0:
             return _raise_and_wrap(RetryBadPauseError(node.step_name))
-        sleep(pause)
+        if attempt < node.total_attempts:
+            sleep(pause)
 
     if isinstance(either_result, Err):
         retry_error = RetryByExceptionError(previous_result, is_assigned, either_result.error, node.step_name)
@@ -121,7 +122,8 @@ async def _async_perform_with_retry(
         pause = either_pause.value
         if not isinstance(pause, (int, float)) or pause < 0:
             return _raise_and_wrap(RetryBadPauseError(node.step_name))
-        await asyncio.sleep(pause)
+        if attempt < node.total_attempts:
+            await asyncio.sleep(pause)
 
     if isinstance(either_result, Err):
         retry_error = RetryByExceptionError(previous_result, is_assigned, either_result.error, node.step_name)
@@ -137,7 +139,7 @@ class _FrameContinuation(Generic[A, B]):
 
 @dataclass(frozen=True, slots=True)
 class _FrameCatch(Generic[Exc, A]):
-    exc_type: type[Exc]
+    exc_type: type[Exc] | type[TimeoutError]
     catcher: Callable[[Exc], A]
 
 
@@ -255,10 +257,6 @@ def run(effect):
                     scope = _enter_ensure_scope(finalizer=frame.finalizer, stack_of_scopes=stack_of_scopes)
 
 
-#  execution follows two basic branches: no errors, and there are errors
-#  finalizer is executed in its own separate scope
-#  which allows finalizer to execute regardless of previous step's errors and discard the result upon completion
-
 @overload
 def run_safe(effect: EffectSyncT[A, E]) -> Result[Result[A, E], Exception]: ...
 @overload
@@ -274,6 +272,11 @@ def run_safe(effect):
         return Ok(run(effect))
     except Exception as err:
         return Err(err)
+
+
+#  execution follows two basic branches: no errors, and there are errors
+#  finalizer is executed in its own separate scope
+#  which allows finalizer to execute regardless of previous step's errors and discard the result upon completion
 
 
 @overload
