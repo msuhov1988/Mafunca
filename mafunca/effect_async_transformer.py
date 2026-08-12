@@ -6,20 +6,24 @@ from typing import TypeVar, Generic, Never
 
 from mafunca._lazy_support import panic_on_coroutine
 from mafunca.result import Result, Ok, Err
-from mafunca.effect_async import EffectAsync
+from mafunca.effect_async import Aff
 from mafunca.effect_async import PureAsync, DelayAsync, DelayThreadAsync, RetryAsync  # noqa
 from mafunca.effect_async import BindAsync, CatchAsync, EnsureAsync  # noqa
+from mafunca.curry import curry2, curry3, curry4
 
 
 __all__ = [
-    "EffectAsyncT",
+    "AffResult",
     "pure",
     "lift_error",
     "lift_result",
     "lift_effect",
     "delay",
     "delay_to_thread",
-    "retry"
+    "retry",
+    "lift2",
+    "lift3",
+    "lift4",
 ]
 
 A = TypeVar("A")
@@ -30,7 +34,7 @@ NewE = TypeVar('NewE')
 
 
 @dataclass(frozen=True, slots=True, repr=True)
-class EffectAsyncT(Generic[A, E]):
+class AffResult(Generic[A, E]):
     """
         A transformer for ASYNCHRONOUS effects.
 
@@ -38,33 +42,33 @@ class EffectAsyncT(Generic[A, E]):
 
         Lazy: not executed until the corresponding executor is called.
     """
-    inner: EffectAsync[Result[A, E]]
+    inner: Aff[Result[A, E]]
 
-    def map(self, fn: Callable[[A], B]) -> EffectAsyncT[B, E]:
+    def map(self, fn: Callable[[A], B]) -> AffResult[B, E]:
         """
             Only for SYNCHRONOUS functions - pure calculation
             :raises MonadError: coroutine functions are not allowed
         """
         panic_on_coroutine(fn, self.__class__.__name__, 'map')
-        return EffectAsyncT(BindAsync(self.inner, lambda res: PureAsync(res.map(fn))))
+        return AffResult(BindAsync(self.inner, lambda res: PureAsync(res.map(fn))))
 
-    def map_result(self, fn: Callable[[A], Result[B, E]]) -> EffectAsyncT[B, E]:
+    def map_result(self, fn: Callable[[A], Result[B, E]]) -> AffResult[B, E]:
         """
             Only for SYNCHRONOUS functions - pure calculation
             :raises MonadError: coroutine functions are not allowed
         """
         panic_on_coroutine(fn, self.__class__.__name__, 'map_result')
-        return EffectAsyncT(BindAsync(self.inner, lambda res: PureAsync(res.bind(fn))))
+        return AffResult(BindAsync(self.inner, lambda res: PureAsync(res.bind(fn))))
 
-    def map_error(self, fn: Callable[[E], NewE]) -> EffectAsyncT[A, NewE]:
+    def map_error(self, fn: Callable[[E], NewE]) -> AffResult[A, NewE]:
         """
             Only for SYNCHRONOUS functions - pure calculation
             :raises MonadError: coroutine functions are not allowed
         """
         panic_on_coroutine(fn, self.__class__.__name__, 'map_error')
-        return EffectAsyncT(BindAsync(self.inner, lambda res: PureAsync(res.map_error(fn))))
+        return AffResult(BindAsync(self.inner, lambda res: PureAsync(res.map_error(fn))))
 
-    def bind(self, fn: Callable[[A], EffectAsyncT[B, E]]) -> EffectAsyncT[B, E]:
+    def bind(self, fn: Callable[[A], AffResult[B, E]]) -> AffResult[B, E]:
         """
             The function that returns the effect must be SYNCHRONOUS.
             Asynchrony is assumed inside the effect
@@ -72,92 +76,92 @@ class EffectAsyncT(Generic[A, E]):
         """
         panic_on_coroutine(fn, self.__class__.__name__, 'bind')
 
-        def continuation(arg: Result[A, E]) -> EffectAsync[Result[B, E]]:
+        def continuation(arg: Result[A, E]) -> Aff[Result[B, E]]:
             if isinstance(arg, Err):
                 return PureAsync(arg)
             return fn(arg.value).inner
 
-        return EffectAsyncT(BindAsync(self.inner, continuation))
+        return AffResult(BindAsync(self.inner, continuation))
 
     def catch_map(
             self,
             exc_type: type[Exc] | type[TimeoutError],
             catcher: Callable[[Exc | TimeoutError], A]
-    ) -> EffectAsyncT[A, E]:
+    ) -> AffResult[A, E]:
         """
             Only for SYNCHRONOUS catchers - pure calculation
             :raises MonadError: coroutine functions are not allowed
         """
         panic_on_coroutine(catcher, self.__class__.__name__, 'catch_map')
-        return EffectAsyncT(CatchAsync(self.inner, exc_type, lambda exc: PureAsync(Ok(catcher(exc)))))
+        return AffResult(CatchAsync(self.inner, exc_type, lambda exc: PureAsync(Ok(catcher(exc)))))
 
     def catch_map_result(
             self,
             exc_type: type[Exc] | type[TimeoutError],
             catcher: Callable[[Exc | TimeoutError], Result[A, E]]
-    ) -> EffectAsyncT[A, E]:
+    ) -> AffResult[A, E]:
         """
             Only for SYNCHRONOUS catchers - pure calculation
             :raises MonadError: coroutine functions are not allowed
         """
         panic_on_coroutine(catcher, self.__class__.__name__, 'catch_map_result')
-        return EffectAsyncT(CatchAsync(self.inner, exc_type, lambda exc: PureAsync(catcher(exc))))
+        return AffResult(CatchAsync(self.inner, exc_type, lambda exc: PureAsync(catcher(exc))))
 
     def catch_bind(
             self,
             exc_type: type[Exc] | type[TimeoutError],
-            catcher: Callable[[Exc | TimeoutError], EffectAsyncT[A, E]]
-    ) -> EffectAsyncT[A, E]:
+            catcher: Callable[[Exc | TimeoutError], AffResult[A, E]]
+    ) -> AffResult[A, E]:
         """
             The catcher that returns the effect must be SYNCHRONOUS.
             Asynchrony is assumed inside the effect
             :raises MonadError: coroutine functions are not allowed
         """
         panic_on_coroutine(catcher, self.__class__.__name__, 'catch_bind')
-        return EffectAsyncT(CatchAsync(self.inner, exc_type, lambda exc: catcher(exc).inner))
+        return AffResult(CatchAsync(self.inner, exc_type, lambda exc: catcher(exc).inner))
 
-    def ensure(self, finalizer: EffectAsync[None]) -> EffectAsyncT[A, E]:
-        return EffectAsyncT(EnsureAsync(self.inner, finalizer))
+    def ensure(self, finalizer: Aff[None]) -> AffResult[A, E]:
+        return AffResult(EnsureAsync(self.inner, finalizer))
 
 
-def pure(value: A) -> EffectAsyncT[A, Never]:
+def pure(value: A) -> AffResult[A, Never]:
     """Wraps a ready-made value"""
-    return EffectAsyncT(PureAsync(Ok(value)))
+    return AffResult(PureAsync(Ok(value)))
 
 
-def lift_error(error: E) -> EffectAsyncT[Never, E]:
+def lift_error(error: E) -> AffResult[Never, E]:
     """Wraps a ready-made error"""
-    return EffectAsyncT(PureAsync(Err(error)))
+    return AffResult(PureAsync(Err(error)))
 
 
-def lift_result(result: Result[A, E]) -> EffectAsyncT[A, E]:
+def lift_result(result: Result[A, E]) -> AffResult[A, E]:
     """Wraps a ready-made Result value"""
-    return EffectAsyncT(PureAsync(result))
+    return AffResult(PureAsync(result))
 
 
-def lift_effect(effect: EffectAsync[A]) -> EffectAsyncT[A, Never]:
+def lift_effect(effect: Aff[A]) -> AffResult[A, Never]:
     """Lift the effect to a transformer"""
-    return EffectAsyncT(BindAsync(effect, lambda a: PureAsync(Ok(a))))
+    return AffResult(BindAsync(effect, lambda a: PureAsync(Ok(a))))
 
 
 def delay(
         fn: Callable[[], Awaitable[Result[A, E]]],
         wait_seconds: int | float | None = None
-) -> EffectAsyncT[A, E]:
+) -> AffResult[A, E]:
     """
         Wraps an ASYNCHRONOUS function for delayed execution
         :raises ValidationError: incorrect wait_seconds parameter
     """
-    return EffectAsyncT(DelayAsync(fn, wait_seconds))
+    return AffResult(DelayAsync(fn, wait_seconds))
 
 
-def delay_to_thread(fn: Callable[[], Result[A, E]]) -> EffectAsyncT[A, E]:
+def delay_to_thread(fn: Callable[[], Result[A, E]]) -> AffResult[A, E]:
     """
         Wraps a SYNCHRONOUS function for delayed execution in a separate thread
         :raises MonadError: coroutine functions are not allowed
     """
-    panic_on_coroutine(fn, EffectAsyncT.__name__, 'delay_to_thread')
-    return EffectAsyncT(DelayThreadAsync(fn))
+    panic_on_coroutine(fn, AffResult.__name__, 'delay_to_thread')
+    return AffResult(DelayThreadAsync(fn))
 
 
 def retry(
@@ -169,7 +173,7 @@ def retry(
         retry_on_result: Callable[[Result[A, E]], bool] = lambda _: False,
         retry_on_exceptions: tuple[type[Exception], ...] = (),
         step_name: str = '',
-) -> EffectAsyncT[A, E]:
+) -> AffResult[A, E]:
     """
     Attempting to repeat the effect under user-defined conditions.
 
@@ -183,7 +187,7 @@ def retry(
 
     :raises ValidationError: errors in basic validation of passed arguments
     """
-    return EffectAsyncT(
+    return AffResult(
         RetryAsync(
             thunk=fn,
             total_attempts=total_attempts,
@@ -194,3 +198,40 @@ def retry(
             step_name=step_name
         )
     )
+
+
+def _ap(wrapped_fn: AffResult[Callable[[A], B], E], wrapped_val: AffResult[A, E]) -> AffResult[B, E]:
+    return wrapped_fn.bind(lambda fn: wrapped_val.map(lambda val: fn(val)))
+
+
+A1 = TypeVar("A1")
+A2 = TypeVar("A2")
+A3 = TypeVar("A3")
+A4 = TypeVar("A4")
+
+
+def lift2(
+        fn: Callable[[A1, A2], B],
+        arg1: AffResult[A1, E],
+        arg2: AffResult[A2, E]
+) -> AffResult[B, E]:
+    return _ap(_ap(pure(curry2(fn)), arg1), arg2)
+
+
+def lift3(
+        fn: Callable[[A1, A2, A3], B],
+        arg1: AffResult[A1, E],
+        arg2: AffResult[A2, E],
+        arg3: AffResult[A3, E]
+) -> AffResult[B, E]:
+    return _ap(_ap(_ap(pure(curry3(fn)), arg1), arg2), arg3)
+
+
+def lift4(
+        fn: Callable[[A1, A2, A3, A4], B],
+        arg1: AffResult[A1, E],
+        arg2: AffResult[A2, E],
+        arg3: AffResult[A3, E],
+        arg4: AffResult[A4, E],
+) -> AffResult[B, E]:
+    return _ap(_ap(_ap(_ap(pure(curry4(fn)), arg1), arg2), arg3), arg4)

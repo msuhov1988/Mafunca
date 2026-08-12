@@ -121,10 +121,6 @@ def lift2(
         arg1: Maybe[A1],
         arg2: Maybe[A2]
 ) -> Maybe[R]:
-    """
-        For a function with two POSITIONAL arguments.
-        Wraps the passed function in the Maybe and applies the applicative method
-    """
     return ap(ap(Just(curry2(fn)), arg1), arg2)
 
 
@@ -134,10 +130,6 @@ def lift3(
         arg2: Maybe[A2],
         arg3: Maybe[A3]
 ) -> Maybe[R]:
-    """
-        For a function with three POSITIONAL arguments.
-        Wraps the passed function in the Maybe and applies the applicative method
-    """
     return ap(ap(ap(Just(curry3(fn)), arg1), arg2), arg3)
 
 
@@ -148,10 +140,6 @@ def lift4(
         arg3: Maybe[A3],
         arg4: Maybe[A4],
 ) -> Maybe[R]:
-    """
-        For a function with four POSITIONAL arguments.
-        Wraps the passed function in the Maybe and applies the applicative method
-    """
     return ap(ap(ap(ap(Just(curry4(fn)), arg1), arg2), arg3), arg4)
 
 

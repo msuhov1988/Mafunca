@@ -5,19 +5,23 @@ from typing import TypeVar, Generic, Never
 
 from mafunca._lazy_support import panic_on_coroutine
 from mafunca.result import Result, Ok, Err
-from mafunca.effect_sync import EffectSync
+from mafunca.effect_sync import Effect
 from mafunca.effect_sync import Pure, Delay, Retry  # noqa
 from mafunca.effect_sync import Bind, Catch, Ensure  # noqa
+from mafunca.curry import curry2, curry3, curry4
 
 
 __all__ = [
-    "EffectSyncT",
+    "EffectResult",
     "pure",
     "lift_error",
     "lift_result",
     "lift_effect",
     "delay",
-    "retry"
+    "retry",
+    "lift2",
+    "lift3",
+    "lift4",
 ]
 
 
@@ -29,7 +33,7 @@ NewE = TypeVar('NewE')
 
 
 @dataclass(frozen=True, slots=True, repr=True)
-class EffectSyncT(Generic[A, E]):
+class EffectResult(Generic[A, E]):
     """
         A transformer for SYNCHRONOUS ONLY effects.
 
@@ -37,80 +41,80 @@ class EffectSyncT(Generic[A, E]):
 
         Lazy: not executed until the corresponding executor is called.
     """
-    inner: EffectSync[Result[A, E]]
+    inner: Effect[Result[A, E]]
 
-    def map(self, fn: Callable[[A], B]) -> EffectSyncT[B, E]:
+    def map(self, fn: Callable[[A], B]) -> EffectResult[B, E]:
         """:raises MonadError: coroutine functions are not allowed"""
         panic_on_coroutine(fn, self.__class__.__name__, 'map')
-        return EffectSyncT(Bind(self.inner, lambda res: Pure(res.map(fn))))
+        return EffectResult(Bind(self.inner, lambda res: Pure(res.map(fn))))
 
-    def map_result(self, fn: Callable[[A], Result[B, E]]) -> EffectSyncT[B, E]:
+    def map_result(self, fn: Callable[[A], Result[B, E]]) -> EffectResult[B, E]:
         """:raises MonadError: coroutine functions are not allowed"""
         panic_on_coroutine(fn, self.__class__.__name__, 'map_result')
-        return EffectSyncT(Bind(self.inner, lambda res: Pure(res.bind(fn))))
+        return EffectResult(Bind(self.inner, lambda res: Pure(res.bind(fn))))
 
-    def map_error(self, fn: Callable[[E], NewE]) -> EffectSyncT[A, NewE]:
+    def map_error(self, fn: Callable[[E], NewE]) -> EffectResult[A, NewE]:
         """:raises MonadError: coroutine functions are not allowed"""
         panic_on_coroutine(fn, self.__class__.__name__, 'map_error')
-        return EffectSyncT(Bind(self.inner, lambda res: Pure(res.map_error(fn))))
+        return EffectResult(Bind(self.inner, lambda res: Pure(res.map_error(fn))))
 
-    def bind(self, fn: Callable[[A], EffectSyncT[B, E]]) -> EffectSyncT[B, E]:
+    def bind(self, fn: Callable[[A], EffectResult[B, E]]) -> EffectResult[B, E]:
         """:raises MonadError: coroutine functions are not allowed"""
         panic_on_coroutine(fn, self.__class__.__name__, 'bind')
 
-        def continuation(arg: Result[A, E]) -> EffectSync[Result[B, E]]:
+        def continuation(arg: Result[A, E]) -> Effect[Result[B, E]]:
             if isinstance(arg, Err):
                 return Pure(arg)
             return fn(arg.value).inner
 
-        return EffectSyncT(Bind(self.inner, continuation))
+        return EffectResult(Bind(self.inner, continuation))
 
-    def catch_map(self, exc_type: type[Exc], catcher: Callable[[Exc], A]) -> EffectSyncT[A, E]:
+    def catch_map(self, exc_type: type[Exc], catcher: Callable[[Exc], A]) -> EffectResult[A, E]:
         """:raises MonadError: coroutine functions are not allowed"""
         panic_on_coroutine(catcher, self.__class__.__name__, 'catch_map')
-        return EffectSyncT(Catch(self.inner, exc_type, lambda exc: Pure(Ok(catcher(exc)))))
+        return EffectResult(Catch(self.inner, exc_type, lambda exc: Pure(Ok(catcher(exc)))))
 
-    def catch_map_result(self, exc_type: type[Exc], catcher: Callable[[Exc], Result[A, E]]) -> EffectSyncT[A, E]:
+    def catch_map_result(self, exc_type: type[Exc], catcher: Callable[[Exc], Result[A, E]]) -> EffectResult[A, E]:
         """:raises MonadError: coroutine functions are not allowed"""
         panic_on_coroutine(catcher, self.__class__.__name__, 'catch_map_result')
-        return EffectSyncT(Catch(self.inner, exc_type, lambda exc: Pure(catcher(exc))))
+        return EffectResult(Catch(self.inner, exc_type, lambda exc: Pure(catcher(exc))))
 
-    def catch_bind(self, exc_type: type[Exc], catcher: Callable[[Exc], EffectSyncT[A, E]]) -> EffectSyncT[A, E]:
+    def catch_bind(self, exc_type: type[Exc], catcher: Callable[[Exc], EffectResult[A, E]]) -> EffectResult[A, E]:
         """:raises MonadError: coroutine functions are not allowed"""
         panic_on_coroutine(catcher, self.__class__.__name__, 'catch_bind')
-        return EffectSyncT(Catch(self.inner, exc_type, lambda exc: catcher(exc).inner))
+        return EffectResult(Catch(self.inner, exc_type, lambda exc: catcher(exc).inner))
 
-    def ensure(self, finalizer: EffectSync[None]) -> EffectSyncT[A, E]:
-        return EffectSyncT(Ensure(self.inner, finalizer))
+    def ensure(self, finalizer: Effect[None]) -> EffectResult[A, E]:
+        return EffectResult(Ensure(self.inner, finalizer))
 
 
-def pure(value: A) -> EffectSyncT[A, Never]:
+def pure(value: A) -> EffectResult[A, Never]:
     """Wraps a ready-made value"""
-    return EffectSyncT(Pure(Ok(value)))
+    return EffectResult(Pure(Ok(value)))
 
 
-def lift_error(err: E) -> EffectSyncT[Never, E]:
+def lift_error(err: E) -> EffectResult[Never, E]:
     """Wraps a ready-made error"""
-    return EffectSyncT(Pure(Err(err)))
+    return EffectResult(Pure(Err(err)))
 
 
-def lift_result(result: Result[A, E]) -> EffectSyncT[A, E]:
+def lift_result(result: Result[A, E]) -> EffectResult[A, E]:
     """Wraps a ready-made Result value"""
-    return EffectSyncT(Pure(result))
+    return EffectResult(Pure(result))
 
 
-def lift_effect(effect: EffectSync[A]) -> EffectSyncT[A, Never]:
+def lift_effect(effect: Effect[A]) -> EffectResult[A, Never]:
     """Lift the effect to a transformer"""
-    return EffectSyncT(Bind(effect, lambda a: Pure(Ok(a))))
+    return EffectResult(Bind(effect, lambda a: Pure(Ok(a))))
 
 
-def delay(fn: Callable[[], Result[A, E]]) -> EffectSyncT[A, E]:
+def delay(fn: Callable[[], Result[A, E]]) -> EffectResult[A, E]:
     """
         Wraps a SYNCHRONOUS function for delayed execution.
         :raises MonadError: coroutine functions are not allowed
     """
-    panic_on_coroutine(fn, EffectSyncT.__name__, 'delay')
-    return EffectSyncT(Delay(fn))
+    panic_on_coroutine(fn, EffectResult.__name__, 'delay')
+    return EffectResult(Delay(fn))
 
 
 def retry(
@@ -121,7 +125,7 @@ def retry(
         retry_on_result: Callable[[Result[A, E]], bool] = lambda _: False,
         retry_on_exceptions: tuple[type[Exception], ...] = (),
         step_name: str = '',
-) -> EffectSyncT[A, E]:
+) -> EffectResult[A, E]:
     """
     Attempting to repeat the effect under user-defined conditions.
 
@@ -135,8 +139,8 @@ def retry(
     :raises MonadError: coroutine functions are not allowed
     :raises ValidationError: errors in basic validation of passed arguments
     """
-    panic_on_coroutine(fn, EffectSyncT.__name__, 'retry')
-    return EffectSyncT(
+    panic_on_coroutine(fn, EffectResult.__name__, 'retry')
+    return EffectResult(
         Retry(
             thunk=fn,
             total_attempts=total_attempts,
@@ -146,3 +150,40 @@ def retry(
             step_name=step_name
         )
     )
+
+
+def _ap(wrapped_fn: EffectResult[Callable[[A], B], E], wrapped_val: EffectResult[A, E]) -> EffectResult[B, E]:
+    return wrapped_fn.bind(lambda fn: wrapped_val.map(lambda val: fn(val)))
+
+
+A1 = TypeVar("A1")
+A2 = TypeVar("A2")
+A3 = TypeVar("A3")
+A4 = TypeVar("A4")
+
+
+def lift2(
+        fn: Callable[[A1, A2], B],
+        arg1: EffectResult[A1, E],
+        arg2: EffectResult[A2, E]
+) -> EffectResult[B, E]:
+    return _ap(_ap(pure(curry2(fn)), arg1), arg2)
+
+
+def lift3(
+        fn: Callable[[A1, A2, A3], B],
+        arg1: EffectResult[A1, E],
+        arg2: EffectResult[A2, E],
+        arg3: EffectResult[A3, E]
+) -> EffectResult[B, E]:
+    return _ap(_ap(_ap(pure(curry3(fn)), arg1), arg2), arg3)
+
+
+def lift4(
+        fn: Callable[[A1, A2, A3, A4], B],
+        arg1: EffectResult[A1, E],
+        arg2: EffectResult[A2, E],
+        arg3: EffectResult[A3, E],
+        arg4: EffectResult[A4, E],
+) -> EffectResult[B, E]:
+    return _ap(_ap(_ap(_ap(pure(curry4(fn)), arg1), arg2), arg3), arg4)

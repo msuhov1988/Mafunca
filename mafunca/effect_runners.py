@@ -6,12 +6,12 @@ from typing import TypeVar, ParamSpec, Generic, overload, Any
 
 from mafunca.common.exceptions import RetryByExceptionError, RetryByValueError, RetryBadPauseError, MonadError
 from mafunca.result import Ok, Err, Result
-from mafunca.effect_sync import EffectSync
-from mafunca.effect_sync_transformer import EffectSyncT
+from mafunca.effect_sync import Effect
+from mafunca.effect_sync_transformer import EffectResult
 from mafunca.effect_sync import Pure, Delay, Retry  # noqa
 from mafunca.effect_sync import Bind, Catch, Ensure  # noqa
-from mafunca.effect_async import EffectAsync
-from mafunca.effect_async_transformer import EffectAsyncT
+from mafunca.effect_async import Aff
+from mafunca.effect_async_transformer import AffResult
 from mafunca.effect_async import PureAsync, DelayAsync, DelayThreadAsync, RetryAsync  # noqa
 from mafunca.effect_async import BindAsync, CatchAsync, EnsureAsync  # noqa
 
@@ -145,12 +145,12 @@ class _FrameCatch(Generic[Exc, A]):
 
 @dataclass(frozen=True, slots=True)
 class _FrameEnsure:
-    finalizer: EffectSync[None] | EffectAsync[None]
+    finalizer: Effect[None] | Aff[None]
 
 
 @dataclass(slots=True)
 class _Scope:
-    node: EffectSync[Any] | EffectAsync[Any]
+    node: Effect[Any] | Aff[Any]
     result: Any = None
     is_assigned: bool = False
     error: Exception | None = None
@@ -168,7 +168,7 @@ def _set_new_primary_error(scope: _Scope, new_error: Exception | None) -> None:
     scope.error = new_error
 
 
-def _enter_ensure_scope(finalizer: EffectSync[None] | EffectAsync[None], stack_of_scopes: list[_Scope]) -> _Scope:
+def _enter_ensure_scope(finalizer: Effect[None] | Aff[None], stack_of_scopes: list[_Scope]) -> _Scope:
     s = _Scope(finalizer)
     stack_of_scopes.append(s)
     return s
@@ -188,9 +188,9 @@ def _leave_ensure_scope(stack_of_scopes: list[_Scope]) -> _Scope:
 #  which allows finalizer to execute regardless of previous step's errors and discard the result upon completion
 
 @overload
-def run(effect: EffectSyncT[A, E]) -> Result[A, E]: ...
+def run(effect: EffectResult[A, E]) -> Result[A, E]: ...
 @overload
-def run(effect: EffectSync[A]) -> A: ...
+def run(effect: Effect[A]) -> A: ...
 
 
 def run(effect):
@@ -198,7 +198,7 @@ def run(effect):
         Simple synchronous executor - just runs a chain.
         :raises MonadError: violations of the contract
     """
-    scope = _Scope(effect.inner if isinstance(effect, EffectSyncT) else effect)
+    scope = _Scope(effect.inner if isinstance(effect, EffectResult) else effect)
     stack_of_scopes = [scope]
     while True:
         if scope.error is None:
@@ -260,9 +260,9 @@ def run(effect):
 
 
 @overload
-def run_safe(effect: EffectSyncT[A, E]) -> Result[Result[A, E], Exception]: ...
+def run_safe(effect: EffectResult[A, E]) -> Result[Result[A, E], Exception]: ...
 @overload
-def run_safe(effect: EffectSync[A]) -> Result[A, Exception]: ...
+def run_safe(effect: Effect[A]) -> Result[A, Exception]: ...
 
 
 def run_safe(effect):
@@ -282,9 +282,9 @@ def run_safe(effect):
 
 
 @overload
-async def run_async(effect: EffectAsyncT[A, E]) -> Result[A, E]: ...
+async def run_async(effect: AffResult[A, E]) -> Result[A, E]: ...
 @overload
-async def run_async(effect: EffectAsync[A]) -> A: ...
+async def run_async(effect: Aff[A]) -> A: ...
 
 
 async def run_async(effect):
@@ -292,7 +292,7 @@ async def run_async(effect):
         Simple asynchronous executor - just runs a chain.
         :raises MonadError: violations of the contract
     """
-    scope = _Scope(effect.inner if isinstance(effect, EffectAsyncT) else effect)
+    scope = _Scope(effect.inner if isinstance(effect, AffResult) else effect)
     stack_of_scopes = [scope]
     while True:
         if scope.error is None:
@@ -358,9 +358,9 @@ async def run_async(effect):
 
 
 @overload
-async def run_safe_async(effect: EffectAsyncT[A, E]) -> Result[Result[A, E], Exception | TimeoutError]: ...
+async def run_safe_async(effect: AffResult[A, E]) -> Result[Result[A, E], Exception | TimeoutError]: ...
 @overload
-async def run_safe_async(effect: EffectAsync[A]) -> Result[A, Exception | TimeoutError]: ...
+async def run_safe_async(effect: Aff[A]) -> Result[A, Exception | TimeoutError]: ...
 
 
 async def run_safe_async(effect):

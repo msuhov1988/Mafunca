@@ -6,13 +6,17 @@ from typing import TypeVar, Generic
 
 from mafunca.common.exceptions import ValidationError
 from mafunca._lazy_support import panic_on_coroutine
+from mafunca.curry import curry2, curry3, curry4
 
 
 __all__ = [
-    "EffectSync",
+    "Effect",
     "pure",
     "delay",
     "retry",
+    "lift2",
+    "lift3",
+    "lift4",
 ]
 
 
@@ -21,47 +25,47 @@ B = TypeVar("B")
 Exc = TypeVar("Exc", bound=Exception)
 
 
-class EffectSync(Generic[A]):
+class Effect(Generic[A]):
     """
         A monad for SYNCHRONOUS ONLY effects.
         Lazy: not executed until the corresponding executor is called.
     """
 
-    def map(self, fn: Callable[[A], B]) -> EffectSync[B]:
+    def map(self, fn: Callable[[A], B]) -> Effect[B]:
         """:raises MonadError: coroutine functions are not allowed"""
         panic_on_coroutine(fn, self.__class__.__name__, 'map')
         return Bind(self, lambda a: Pure(fn(a)))
 
-    def bind(self, fn: Callable[[A], EffectSync[B]]) -> EffectSync[B]:
+    def bind(self, fn: Callable[[A], Effect[B]]) -> Effect[B]:
         """:raises MonadError: coroutine functions are not allowed"""
         panic_on_coroutine(fn, self.__class__.__name__, 'bind')
         return Bind(self, fn)
 
-    def catch_map(self, exc_type: type[Exc], catcher: Callable[[Exc], A]) -> EffectSync[A]:
+    def catch_map(self, exc_type: type[Exc], catcher: Callable[[Exc], A]) -> Effect[A]:
         """:raises MonadError: coroutine functions are not allowed"""
         panic_on_coroutine(catcher, self.__class__.__name__, 'catch_map')
         return Catch(self, exc_type, lambda exc: Pure(catcher(exc)))
 
-    def catch_bind(self, exc_type: type[Exc], catcher: Callable[[Exc], EffectSync[A]]) -> EffectSync[A]:
+    def catch_bind(self, exc_type: type[Exc], catcher: Callable[[Exc], Effect[A]]) -> Effect[A]:
         """:raises MonadError: coroutine functions are not allowed"""
         panic_on_coroutine(catcher, self.__class__.__name__, 'catch_bind')
         return Catch(self, exc_type, catcher)
 
-    def ensure(self, finalizer: EffectSync[None]) -> EffectSync[A]:
+    def ensure(self, finalizer: Effect[None]) -> Effect[A]:
         return Ensure(self, finalizer)
 
 
 @dataclass(frozen=True, slots=True, repr=True)
-class Pure(Generic[A], EffectSync[A]):
+class Pure(Generic[A], Effect[A]):
     value: A
 
 
 @dataclass(frozen=True, slots=True, repr=True)
-class Delay(Generic[A], EffectSync[A]):
+class Delay(Generic[A], Effect[A]):
     thunk: Callable[[], A]
 
 
-class Retry(Generic[A], EffectSync[A]):
+class Retry(Generic[A], Effect[A]):
     __slots__ = (
         "thunk",
         "total_attempts",
@@ -99,35 +103,35 @@ class Retry(Generic[A], EffectSync[A]):
 
 
 @dataclass(frozen=True, slots=True, repr=True)
-class Bind(Generic[A, B], EffectSync[B]):
-    current: EffectSync[A]
-    continuation: Callable[[A], EffectSync[B]]
+class Bind(Generic[A, B], Effect[B]):
+    current: Effect[A]
+    continuation: Callable[[A], Effect[B]]
 
 
 @dataclass(frozen=True, slots=True, repr=True)
-class Catch(Generic[A, Exc], EffectSync[A]):
-    current: EffectSync[A]
+class Catch(Generic[A, Exc], Effect[A]):
+    current: Effect[A]
     exc_type: type[Exc]
-    catcher: Callable[[Exc], EffectSync[A]]
+    catcher: Callable[[Exc], Effect[A]]
 
 
 @dataclass(frozen=True, slots=True, repr=True)
-class Ensure(Generic[A], EffectSync[A]):
-    current: EffectSync[A]
-    finalizer: EffectSync[None]
+class Ensure(Generic[A], Effect[A]):
+    current: Effect[A]
+    finalizer: Effect[None]
 
 
-def pure(value: A) -> EffectSync[A]:
+def pure(value: A) -> Effect[A]:
     """Wraps a ready-made value"""
     return Pure(value)
 
 
-def delay(fn: Callable[[], A]) -> EffectSync[A]:
+def delay(fn: Callable[[], A]) -> Effect[A]:
     """
         Wraps a SYNCHRONOUS function for delayed execution.
         :raises MonadError: coroutine functions are not allowed
     """
-    panic_on_coroutine(fn, EffectSync.__name__, 'delay')
+    panic_on_coroutine(fn, Effect.__name__, 'delay')
     return Delay(fn)
 
 
@@ -139,7 +143,7 @@ def retry(
         retry_on_result: Callable[[A], bool] = lambda _: False,
         retry_on_exceptions: tuple[type[Exception], ...] = (),
         step_name: str = '',
-) -> EffectSync[A]:
+) -> Effect[A]:
     """
     Attempting to repeat the effect under user-defined conditions.
 
@@ -153,7 +157,7 @@ def retry(
     :raises MonadError: coroutine functions are not allowed
     :raises ValidationError: errors in basic validation of passed arguments
     """
-    panic_on_coroutine(fn, EffectSync.__name__, 'retry')
+    panic_on_coroutine(fn, Effect.__name__, 'retry')
     return Retry(
         thunk=fn,
         total_attempts=total_attempts,
@@ -162,3 +166,40 @@ def retry(
         retry_on_exceptions=retry_on_exceptions,
         step_name=step_name
     )
+
+
+def _ap(wrapped_fn: Effect[Callable[[A], B]], wrapped_val: Effect[A]) -> Effect[B]:
+    return wrapped_fn.bind(lambda fn: wrapped_val.map(lambda val: fn(val)))
+
+
+A1 = TypeVar("A1")
+A2 = TypeVar("A2")
+A3 = TypeVar("A3")
+A4 = TypeVar("A4")
+
+
+def lift2(
+        fn: Callable[[A1, A2], B],
+        arg1: Effect[A1],
+        arg2: Effect[A2]
+) -> Effect[B]:
+    return _ap(_ap(Pure(curry2(fn)), arg1), arg2)
+
+
+def lift3(
+        fn: Callable[[A1, A2, A3], B],
+        arg1: Effect[A1],
+        arg2: Effect[A2],
+        arg3: Effect[A3]
+) -> Effect[B]:
+    return _ap(_ap(_ap(Pure(curry3(fn)), arg1), arg2), arg3)
+
+
+def lift4(
+        fn: Callable[[A1, A2, A3, A4], B],
+        arg1: Effect[A1],
+        arg2: Effect[A2],
+        arg3: Effect[A3],
+        arg4: Effect[A4],
+) -> Effect[B]:
+    return _ap(_ap(_ap(_ap(Pure(curry4(fn)), arg1), arg2), arg3), arg4)

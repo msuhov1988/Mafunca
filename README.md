@@ -432,33 +432,35 @@ Why is this necessary at all?
 A rough example:
 
 ```python
-from mafunca.effect_sync import EffectSync, pure, delay
+from mafunca.effect_sync import Effect, pure, delay
 from mafunca.effect_runners import run
 
 
-def get_addresses_from_database(number: int) -> EffectSync[list[str]]:
+def get_addresses_from_database(number: int) -> Effect[list[str]]:
     def get_addresses_from_database_inner() -> list[str]: ...
-        # the effect involving number
-    
+
+    # the effect involving number
+
     return delay(get_addresses_from_database_inner)
 
 
-def send_emails_via_smtp(addresses: list[str]) -> EffectSync[None]:
+def send_emails_via_smtp(addresses: list[str]) -> Effect[None]:
     def send_emails_via_smtp_inner() -> None: ...
-        # mailing
-    
+
+    # mailing
+
     return delay(send_emails_via_smtp_inner)
 
 
-def function_with_effects(a: int) -> EffectSync[None]:    
+def function_with_effects(a: int) -> Effect[None]:
     return (
         pure(a ** 2)
-        .bind(get_addresses_from_database)     
+        .bind(get_addresses_from_database)
         .bind(send_emails_via_smtp)
     )
 
 
-effect: EffectSync[None] = function_with_effects(10)
+effect: Effect[None] = function_with_effects(10)
 run(effect)  # performing side effects
 ```
 Despite the fact that the example includes both reading from a database and sending emails,
@@ -478,31 +480,34 @@ Now let's move on to considering monads for effects.
 Synchronous and asynchronous effects are strictly separated here
 
 ### Synchronous effects
+
 ```python
-from mafunca.effect_sync import EffectSync
-from mafunca.effect_sync import pure, delay, retry
+from mafunca.effect_sync import Effect
+from mafunca.effect_sync import pure, delay, retry, lift2, lift3, lift4
 
 from mafunca.effect_runners import run, run_safe
 ```
 ```python
-class EffectSync(Generic[A]): ...
+class Effect(Generic[A]): ...
 ```
-#### EffectSync methods(`self` is omitted for brevity)
-| Method                                                                                | returns         | description                                                                                        |
-|---------------------------------------------------------------------------------------|-----------------|----------------------------------------------------------------------------------------------------|
-| map(fn: Callable[[A], B])                                                             | `EffectSync[B]` | applies the function, wraps the result                                                             |
-| <nobr>bind(fn: Callable[[A], EffectSync[B]])</nobr>                                   | `EffectSync[B]` | applies the function and does not wraps the result                                                 |  
-| <nobr>catch_map(exc_type: type[Exc], catcher: Callable[[Exc], A])</nobr>              | `EffectSync[A]` | Handler for `Exc` type errors, where `Exc` is a subtype of `Exception`. Wraps the result.          |
-| <nobr>catch_bind(exc_type: type[Exc], catcher: Callable[[Exc], EffectSync[A]])</nobr> | `EffectSync[A]` | Handler for `Exc` type errors, where `Exc` is a subtype of `Exception`. Does not wraps the result. |
-| ensure(finalizer: EffectSync[None])                                                   | `EffectSync[A]` | Finalizer                                                                                          |
+#### Effect methods(`self` is omitted for brevity)
+| Method                                                                            | returns     | description                                                                                        |
+|-----------------------------------------------------------------------------------|-------------|----------------------------------------------------------------------------------------------------|
+| map(fn: Callable[[A], B])                                                         | `Effect[B]` | applies the function, wraps the result                                                             |
+| <nobr>bind(fn: Callable[[A], Effect[B]])</nobr>                                   | `Effect[B]` | applies the function and does not wraps the result                                                 |  
+| <nobr>catch_map(exc_type: type[Exc], catcher: Callable[[Exc], A])</nobr>          | `Effect[A]` | Handler for `Exc` type errors, where `Exc` is a subtype of `Exception`. Wraps the result.          |
+| <nobr>catch_bind(exc_type: type[Exc], catcher: Callable[[Exc], Effect[A]])</nobr> | `Effect[A]` | Handler for `Exc` type errors, where `Exc` is a subtype of `Exception`. Does not wraps the result. |
+| ensure(finalizer: Effect[None])                                                   | `Effect[A]` | Finalizer                                                                                          |
 The methods listed in the table above are only used for binding.  
 To initiate an effect, you need to use one of the module-level functions:
 
-| Function                                                                                                                                                                                                                                                                                                                                     | returns         | description                                                                                                                                                  |
-|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| pure(value: A)                                                                                                                                                                                                                                                                                                                               | `EffectSync[A]` | Wraps a ready-made value                                                                                                                                     |
-| <nobr>delay(fn: Callable[[], A])</nobr>                                                                                                                                                                                                                                                                                                      | `EffectSync[A]` | Wraps a SYNCHRONOUS function for delayed execution                                                                                                           |
-| retry(<br/>fn: Callable[[], A],<br/>*,<br/>total_attempts: int = 1,<br/><nobr>pause_seconds_between: Callable[[int], Union[int, float]] = lambda _: 0</nobr>,<br/><nobr>retry_on_result: Callable[[A], bool] = lambda _: False</nobr>,<br/><nobr>retry_on_exceptions: tuple[type[Exception], ...] = ()</nobr>,<br/>step_name: str = ''<br/>) | `EffectSync[A]` | Wraps a SYNCHRONOUS function for delayed execution. Attempting to repeat it under user-defined conditions. Details can be found in the function's docstring. |
+| Function                                                                                                                                                                                                                                                                                                                                     | returns     | description                                                                                                                                                  |
+|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| pure(value: A)                                                                                                                                                                                                                                                                                                                               | `Effect[A]` | Wraps a ready-made value                                                                                                                                     |
+| <nobr>delay(fn: Callable[[], A])</nobr>                                                                                                                                                                                                                                                                                                      | `Effect[A]` | Wraps a SYNCHRONOUS function for delayed execution                                                                                                           |
+| retry(<br/>fn: Callable[[], A],<br/>*,<br/>total_attempts: int = 1,<br/><nobr>pause_seconds_between: Callable[[int], Union[int, float]] = lambda _: 0</nobr>,<br/><nobr>retry_on_result: Callable[[A], bool] = lambda _: False</nobr>,<br/><nobr>retry_on_exceptions: tuple[type[Exception], ...] = ()</nobr>,<br/>step_name: str = ''<br/>) | `Effect[A]` | Wraps a SYNCHRONOUS function for delayed execution. Attempting to repeat it under user-defined conditions. Details can be found in the function's docstring. |
+| lift2(<br/>fn: Callable[[A1, A2], R],<br/>arg1: Effect[A1],<br/>arg2: Effect[A2]<br/>)                                                                                                                                                                                                                                                       | `Effect[R]` | Applies wrapped entities to a two-argument function                                                                                                          |
+| lift3, lift4                                                                                                                                                                                                                                                                                                                                 | `Effect[R]` | Similarly to lift2, but for functions with 3 and 4 positional arguments, respectively                                                                        |
 #### Runners:
 - **run(effect)** - simple executor - just runs a chain
 - **run_safe(effect)** - runs a chain, catching possible errors - heirs of `Exception`
@@ -512,32 +517,35 @@ and the `catch_` and `ensure` methods will not be triggered.
 This remains true even if you set a handler for this exception in the `catch_` method
 
 ### Asynchronous effects
+
 ```python
-from mafunca.effect_async import EffectAsync
-from mafunca.effect_async import pure, delay, delay_to_thread, retry
+from mafunca.effect_async import Aff
+from mafunca.effect_async import pure, delay, delay_to_thread, retry, lift2, lift3, lift4
 
 from mafunca.effect_runners import run_async, run_safe_async
 ```
 ```python
-class EffectAsync(Generic[A]): ...
+class Aff(Generic[A]): ...
 ```
-#### EffectAsync methods(`self` is omitted for brevity)
-| Method                                                                                                                   | returns          | description                                                                                        |
-|--------------------------------------------------------------------------------------------------------------------------|------------------|----------------------------------------------------------------------------------------------------|
-| map(fn: Callable[[A], B])                                                                                                | `EffectAsync[B]` | applies the function, wraps the result                                                             |
-| <nobr>bind(fn: Callable[[A], EffectAsync[B]])</nobr>                                                                     | `EffectAsync[B]` | applies the function and does not wraps the result                                                 |  
-| catch_map(<br/><nobr>exc_type: type[Exc],</nobr><br/><nobr>catcher: Callable[[Exc], A]</nobr><br/>)                      | `EffectAsync[A]` | Handler for `Exc` type errors, where `Exc` is a subtype of `Exception`. Wraps the result.          |
-| catch_bind(<br/><nobr>exc_type: type[Exc],</nobr><br/><nobr>catcher: Callable[[Exc], EffectAsync[A]]</nobr><br/>)</nobr> | `EffectAsync[A]` | Handler for `Exc` type errors, where `Exc` is a subtype of `Exception`. Does not wraps the result. |
-| ensure(finalizer: EffectAsync[None])                                                                                     | `EffectAsync[A]` | Finalizer                                                                                          |
+#### Aff methods(`self` is omitted for brevity)
+| Method                                                                                                           | returns  | description                                                                                        |
+|------------------------------------------------------------------------------------------------------------------|----------|----------------------------------------------------------------------------------------------------|
+| map(fn: Callable[[A], B])                                                                                        | `Aff[B]` | applies the function, wraps the result                                                             |
+| <nobr>bind(fn: Callable[[A], Aff[B]])</nobr>                                                                     | `Aff[B]` | applies the function and does not wraps the result                                                 |  
+| catch_map(<br/><nobr>exc_type: type[Exc],</nobr><br/><nobr>catcher: Callable[[Exc], A]</nobr><br/>)              | `Aff[A]` | Handler for `Exc` type errors, where `Exc` is a subtype of `Exception`. Wraps the result.          |
+| catch_bind(<br/><nobr>exc_type: type[Exc],</nobr><br/><nobr>catcher: Callable[[Exc], Aff[A]]</nobr><br/>)</nobr> | `Aff[A]` | Handler for `Exc` type errors, where `Exc` is a subtype of `Exception`. Does not wraps the result. |
+| ensure(finalizer: Aff[None])                                                                                     | `Aff[A]` | Finalizer                                                                                          |
 The methods listed in the table above are only used for binding.  
 To initiate an effect, you need to use one of the module-level functions:
 
-| Function                                                                                                                                                                                                                                                                                                                                                                                                             | returns          | description                                                                                                                                                    |
-|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| pure(value: A)                                                                                                                                                                                                                                                                                                                                                                                                       | `EffectAsync[A]` | Wraps a ready-made value                                                                                                                                       |
-| delay(<br/>fn: Callable[[], Awaitable[A]],<br/>wait_seconds: Union[int, float, None] = None<br/>)                                                                                                                                                                                                                                                                                                                    | `EffectAsync[A]` | Wraps an ASYNCHRONOUS function for delayed execution with optional timer                                                                                       |
-| <nobr>delay_to_thread(fn: Callable[[], A])</nobr>                                                                                                                                                                                                                                                                                                                                                                    | `EffectAsync[A]` | Wraps a SYNCHRONOUS function for delayed execution in a separate thread                                                                                        |
-| retry(<br/>fn: Callable[[], Awaitable[A]],<br/>*,<br/>total_attempts: int = 1,<br/>wait_seconds_on_attempt: Union[int, float, None] = None,<br/><nobr>pause_seconds_between: Callable[[int], Union[int, float]] = lambda _: 0</nobr>,<br/><nobr>retry_on_result: Callable[[A], bool] = lambda _: False</nobr>,<br/><nobr>retry_on_exceptions: tuple[type[Exception], ...] = ()</nobr>,<br/>step_name: str = ''<br/>) | `EffectAsync[A]` | Wraps an ASYNCHRONOUS function for delayed execution. Attempting to repeat it under user-defined conditions. Details can be found in the function's docstring. |
+| Function                                                                                                                                                                                                                                                                                                                                                                                                             | returns  | description                                                                                                                                                    |
+|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| pure(value: A)                                                                                                                                                                                                                                                                                                                                                                                                       | `Aff[A]` | Wraps a ready-made value                                                                                                                                       |
+| delay(<br/>fn: Callable[[], Awaitable[A]],<br/>wait_seconds: Union[int, float, None] = None<br/>)                                                                                                                                                                                                                                                                                                                    | `Aff[A]` | Wraps an ASYNCHRONOUS function for delayed execution with optional timer                                                                                       |
+| <nobr>delay_to_thread(fn: Callable[[], A])</nobr>                                                                                                                                                                                                                                                                                                                                                                    | `Aff[A]` | Wraps a SYNCHRONOUS function for delayed execution in a separate thread                                                                                        |
+| retry(<br/>fn: Callable[[], Awaitable[A]],<br/>*,<br/>total_attempts: int = 1,<br/>wait_seconds_on_attempt: Union[int, float, None] = None,<br/><nobr>pause_seconds_between: Callable[[int], Union[int, float]] = lambda _: 0</nobr>,<br/><nobr>retry_on_result: Callable[[A], bool] = lambda _: False</nobr>,<br/><nobr>retry_on_exceptions: tuple[type[Exception], ...] = ()</nobr>,<br/>step_name: str = ''<br/>) | `Aff[A]` | Wraps an ASYNCHRONOUS function for delayed execution. Attempting to repeat it under user-defined conditions. Details can be found in the function's docstring. |
+| lift2(<br/>fn: Callable[[A1, A2], R],<br/>arg1: Aff[A1],<br/>arg2: Aff[A2]<br/>)                                                                                                                                                                                                                                                                                                                                     | `Aff[R]` | Applies wrapped entities to a two-argument function                                                                                                            |
+| lift3, lift4                                                                                                                                                                                                                                                                                                                                                                                                         | `Aff[R]` | Similarly to lift2, but for functions with 3 and 4 positional arguments, respectively                                                                          |
 #### Runners:
 - **run_async(effect)** - awaitable simple executor - just runs a chain
 - **run_safe_async(effect)** - awaitable, runs a chain, catching possible errors - heirs of `Exception` or `TimeoutError`
@@ -555,23 +563,27 @@ To initiate an effect, you need to use one of the module-level functions:
 
 ### Transformers
 Each effect monad has its own transformer over Result
+
 ```python
-from mafunca.effect_sync_transformer import EffectSyncT
+from mafunca.effect_sync_transformer import EffectResult
 from mafunca.effect_sync_transformer import pure, delay, retry
 from mafunca.effect_sync_transformer import lift_error, lift_result, lift_effect
+from mafunca.effect_sync_transformer import lift2, lift3, lift4
 ```
 ```python
-class EffectSyncT(Generic[A, E]):    
-    inner: EffectSync[Result[A, E]]
+class EffectResult(Generic[A, E]):    
+    inner: Effect[Result[A, E]]
 ```
+
 ```python
-from mafunca.effect_async_transformer import EffectAsyncT
+from mafunca.effect_async_transformer import AffResult
 from mafunca.effect_async_transformer import pure, delay, delay_to_thread, retry
 from mafunca.effect_async_transformer import lift_error, lift_result, lift_effect
+from mafunca.effect_async_transformer import lift2, lift3, lift4
 ```
 ```python
-class EffectAsyncT(Generic[A, E]):    
-    inner: EffectAsync[Result[A, E]]
+class AffResult(Generic[A, E]):    
+    inner: Aff[Result[A, E]]
 ```
 The performers are the same:
 ```python
@@ -616,37 +628,41 @@ they are not yet added to the continuation stack at the time of `open_resource` 
 
 ### Effect examples
 The examples are "toy-like", but they reflect the essence
+
 ```python
-from mafunca.effect_async import EffectAsync, pure, retry
+from mafunca.effect_async import Aff, pure, retry
 from mafunca.effect_runners import run_async
 
-def example_retry() -> EffectAsync[int]:
-    glb = 0
 
-    def effect(value):
-        async def effect_inner():
-            nonlocal glb
-            glb += 1
-            if glb < 3:
-                raise TypeError("Example error")
-            return value
-        return effect_inner
+def example_retry() -> Aff[int]:
+  glb = 0
 
-    eff = (
-        pure(0)
-        .map(lambda v: v + 1)
-        .bind(lambda v: retry(
-            effect(v),
-            total_attempts=3,
-            retry_on_exceptions=(TypeError,)
-        ))
-    )
-    return eff
+  def effect(value):
+    async def effect_inner():
+      nonlocal glb
+      glb += 1
+      if glb < 3:
+        raise TypeError("Example error")
+      return value
+
+    return effect_inner
+
+  eff = (
+    pure(0)
+    .map(lambda v: v + 1)
+    .bind(lambda v: retry(
+      effect(v),
+      total_attempts=3,
+      retry_on_exceptions=(TypeError,)
+    ))
+  )
+  return eff
+
 
 async def main():
-    eff = example_retry()
-    res = await run_async(eff)  # 1
-    return res
+  eff = example_retry()
+  res = await run_async(eff)  # 1
+  return res
 ```
 
 

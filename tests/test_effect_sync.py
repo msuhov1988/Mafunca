@@ -4,9 +4,11 @@ from mafunca.common.exceptions import MonadError
 from mafunca.common.exceptions import ValidationError, RetryBadPauseError, RetryByExceptionError, RetryByValueError
 from mafunca.result import Ok, Err
 from mafunca.effect_sync import pure, delay, retry
+from mafunca.effect_sync import lift2, lift3, lift4
 from mafunca.effect_sync_transformer import pure as lift_pure, lift_error
 from mafunca.effect_sync_transformer import delay as delay_t, retry as retry_t
 from mafunca.effect_sync_transformer import lift_effect, lift_result
+from mafunca.effect_sync_transformer import lift2 as lift2_t, lift3 as lift3_t, lift4 as lift4_t
 from mafunca.effect_runners import run, run_safe
 
 
@@ -401,6 +403,111 @@ class TestEffectSync(unittest.TestCase):
         for _ in range(10_000):
             eff = eff.bind(lambda v: pure(v + 1))
         self.assertEqual(run(eff), 10_000)
+
+    def test_lift2(self):
+        def two(a, b):
+            return [a, b]
+
+        eff = lift2(two, pure(0), pure(1))
+        self.assertEqual(run(eff), [0, 1])
+
+        eff = lift2(two, pure(0), delay(lambda: 1))
+        self.assertEqual(run(eff), [0, 1])
+
+        eff = lift2(two, pure(0), retry(lambda: 1))
+        self.assertEqual(run(eff), [0, 1])
+
+        eff = lift2(two, delay(lambda: 0), retry(lambda: 1))
+        self.assertEqual(run(eff), [0, 1])
+
+    def test_lift3(self):
+        def three(a, b, c):
+            return [a, b, c]
+
+        eff = lift3(three, pure(0), delay(lambda: 1), retry(lambda: 2))
+        self.assertEqual(run(eff), [0, 1, 2])
+
+    def test_lift4(self):
+        def four(a, b, c, d):
+            return [a, b, c, d]
+
+        eff = lift4(four, pure(0), delay(lambda: 1), retry(lambda: 2), pure(3))
+        self.assertEqual(run(eff), [0, 1, 2, 3])
+
+    def test_lift2_transformer(self):
+        def two(a, b):
+            return [a, b]
+
+        eff = lift2_t(two, lift_pure(0), lift_pure(1))
+        self.assertEqual(run(eff).value, [0, 1])
+
+        eff = lift2_t(two, lift_error(0), lift_pure(1))
+        res = run(eff)
+        self.assertTrue(res.is_error)
+        self.assertEqual(res.error, 0)
+
+        eff = lift2_t(two, lift_pure(0), lift_error(1))
+        res = run(eff)
+        self.assertTrue(res.is_error)
+        self.assertEqual(res.error, 1)
+
+        eff = lift2_t(two, delay_t(lambda: Ok(0)), lift_result(Ok(1)))
+        self.assertEqual(run(eff).value, [0, 1])
+
+        eff = lift2_t(two, delay_t(lambda: Err(0)), lift_result(Ok(1)))
+        res = run(eff)
+        self.assertTrue(res.is_error)
+        self.assertEqual(res.error, 0)
+
+    def test_lift3_transformer(self):
+        def three(a, b, c):
+            return [a, b, c]
+
+        eff = lift3_t(three, lift_pure(0), lift_pure(1), lift_pure(2))
+        self.assertEqual(run(eff).value, [0, 1, 2])
+
+        eff = lift3_t(three, lift_error(0), lift_pure(1), lift_pure(2))
+        res = run(eff)
+        self.assertTrue(res.is_error)
+        self.assertEqual(res.error, 0)
+
+        eff = lift3_t(three, lift_pure(0), lift_pure(1), lift_error(2))
+        res = run(eff)
+        self.assertTrue(res.is_error)
+        self.assertEqual(res.error, 2)
+
+        eff = lift3_t(three, delay_t(lambda: Ok(0)), lift_result(Ok(1)), lift_effect(pure(2)))
+        self.assertEqual(run(eff).value, [0, 1, 2])
+
+        eff = lift3_t(three, delay_t(lambda: Err(0)), lift_result(Ok(1)), lift_effect(pure(2)))
+        res = run(eff)
+        self.assertTrue(res.is_error)
+        self.assertEqual(res.error, 0)
+
+    def test_lift4_transformer(self):
+        def four(a, b, c, d):
+            return [a, b, c, d]
+
+        eff = lift4_t(four, lift_pure(0), lift_pure(1), lift_pure(2), lift_pure(3))
+        self.assertEqual(run(eff).value, [0, 1, 2, 3])
+
+        eff = lift4_t(four, lift_error(0), lift_pure(1), lift_pure(2), lift_pure(3))
+        res = run(eff)
+        self.assertTrue(res.is_error)
+        self.assertEqual(res.error, 0)
+
+        eff = lift4_t(four, lift_pure(0), lift_pure(1), lift_pure(2), lift_error(3))
+        res = run(eff)
+        self.assertTrue(res.is_error)
+        self.assertEqual(res.error, 3)
+
+        eff = lift4_t(four, delay_t(lambda: Ok(0)), lift_result(Ok(1)), lift_effect(pure(2)), lift_effect(pure(3)))
+        self.assertEqual(run(eff).value, [0, 1, 2, 3])
+
+        eff = lift4_t(four, delay_t(lambda: Err(0)), lift_result(Ok(1)), lift_effect(pure(2)), lift_effect(pure(3)))
+        res = run(eff)
+        self.assertTrue(res.is_error)
+        self.assertEqual(res.error, 0)
 
 
 if __name__ == '__main__':
