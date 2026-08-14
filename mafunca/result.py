@@ -43,7 +43,7 @@ class Ok(Generic[T]):
     def map(self, fn: Callable[[T], R]) -> 'Ok[R]':
         return Ok(fn(self.value))
 
-    def bind(self, fn: Callable[[T], 'Result[R, E]']) -> 'Result[R, E]':
+    def bind(self, fn: Callable[[T], 'Result[R, NewE]']) -> 'Result[R, NewE]':
         return fn(self.value)
 
     def map_error(self, fn: Callable[[Never], NewE]) -> 'Ok[T]':
