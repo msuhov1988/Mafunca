@@ -1,6 +1,6 @@
 import unittest
 
-from mafunca.result import Ok, Err
+from mafunca.result_old import Ok, Err
 from mafunca.maybe import Just, Nothing
 from mafunca.maybe_transformer import MaybeT, from_null, from_try, ap, lift2, lift3, lift4, lift
 from mafunca.maybe_transformer import ok_of, error_of, nothing_of, result_of, maybe_of

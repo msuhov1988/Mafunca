@@ -4,7 +4,7 @@ from collections.abc import Callable
 from typing import TypeVar, Generic, Never, cast
 
 from mafunca._lazy_support import panic_on_coroutine
-from mafunca.result import Result, Ok, Err
+from mafunca.result_old import Result, Ok, Err
 from mafunca.effect_sync import Effect
 from mafunca.effect_sync import Pure, Delay, Retry  # noqa
 from mafunca.effect_sync import Bind, Catch, Ensure  # noqa

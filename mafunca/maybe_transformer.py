@@ -4,7 +4,7 @@ from functools import wraps
 from typing import TypeVar, Generic, Union, ParamSpec, cast, Any, Never
 
 from mafunca.maybe import Just, Nothing, Maybe
-from mafunca.result import Ok, Err, Result
+from mafunca.result_old import Ok, Err, Result
 from mafunca.curry import curry2, curry3, curry4
 
 

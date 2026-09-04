@@ -62,8 +62,10 @@ How can we combine them without additional checks, external **try except** block
 
 **Case of errors only**  
 We can extend the standard try except mechanism in each of the functions as follows:
+
 ```python
-from mafunca.result import Ok, Err, Result
+from mafunca.result_old import Ok, Err, Result
+
 
 # Result[T, E] is just a TypeAlias for Ok[T] | Err[E]
 def f1(...) -> Result[T, Exception]:
@@ -74,8 +76,10 @@ def f1(...) -> Result[T, Exception]:
         return Err(err)
 ```
 Or
+
 ```python
-from mafunca.result import from_try
+from mafunca.result_old import from_try
+
 
 @from_try
 def f1(...):
@@ -144,8 +148,9 @@ final_in_container = f1(val).bind(f2).bind(f3)
 ```
 
 ### Result methods:
+
 ```python
-import mafunca.result  # the corresponding module
+import mafunca.result_old  # the corresponding module
 ```
 ```python
 Result: TypeAlias = Ok[T] | Err[E]
@@ -294,7 +299,7 @@ Now, by wrapping the function in the **Ok** container, I can use the **ap** func
 
 ```python
 from mafunca.curry import curry3
-from mafunca.result import ok_of, err_of, ap
+from mafunca.result_old import ok_of, err_of, ap
 
 
 @curry3
@@ -310,7 +315,7 @@ ap(ap(ap(ok_of(summa), err_of("Error")), ok_of(2)), ok_of(3))  # Err("Error")
 There is a special function to avoid writing such chains manually:
 
 ```python
-from mafunca.result import ok_of, lift3
+from mafunca.result_old import ok_of, lift3
 
 
 def summa(a: int, b: int, c: int) -> int:

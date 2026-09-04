@@ -31,3 +31,6 @@ dependencies = []
 Homepage = "https://github.com/msuhov1988/Mafunca"
 Repository = "https://github.com/msuhov1988/Mafunca"
 Issues = "https://github.com/msuhov1988/Mafunca/issues"
+
+[tool.setuptools.packages]
+find = { include = ["mafunca*"] }

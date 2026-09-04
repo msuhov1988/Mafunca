@@ -5,7 +5,7 @@ from typing import TypeVar, Generic, Never, cast
 
 
 from mafunca._lazy_support import panic_on_coroutine
-from mafunca.result import Result, Ok, Err
+from mafunca.result_old import Result, Ok, Err
 from mafunca.effect_async import Aff
 from mafunca.effect_async import PureAsync, DelayAsync, DelayThreadAsync, RetryAsync  # noqa
 from mafunca.effect_async import BindAsync, CatchAsync, EnsureAsync  # noqa

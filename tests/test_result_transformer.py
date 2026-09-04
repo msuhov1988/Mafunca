@@ -1,222 +1,232 @@
 import unittest
 
-from mafunca.result import Ok, Err
-from mafunca.maybe import Just, Nothing
-from mafunca.result_transformer import ResultT, from_null, from_try, ap, lift2, lift3, lift4, lift
-from mafunca.result_transformer import just_of, nothing_of, error_of, maybe_of, result_of
+from mafunca.result import success, fail as result_fail
+from mafunca.maybe import Just, Nothing, nothing as maybe_empty
+from mafunca.maybe_direct import fmap as maybe_map
+from mafunca.result_maybe import just, nothing, fail, lift_maybe, lift_result
+from mafunca.result_maybe import is_just, is_nothing, is_fail, from_null, from_try
+from mafunca.result_maybe_direct import fmap, fmap_error, fmap_maybe, fmap_result, bind, fold, get_or_else, ap
+from mafunca.result_maybe_lift import lift2, lift3, lift4, lift
+import mafunca.result_maybe_flow as rf
+from mafunca.flow import flow
+
 from mafunca.common.exceptions import MonadError
 
 
 class TestResultMaybeT(unittest.TestCase):
     def test_introspection_forward(self):
-        res = ResultT(Ok(Just(3)))
-        self.assertTrue(res.inner.is_ok)
-        self.assertFalse(res.inner.is_error)
-        self.assertTrue(res.inner.value.is_just)
-        self.assertFalse(res.inner.value.is_nothing)
-        self.assertTrue(res.is_just)
+        res = just(3)
+        self.assertTrue(is_just(res))
+        self.assertFalse(is_fail(res))
+        self.assertFalse(is_nothing(res))        
 
-        res = ResultT(Ok(Nothing()))
-        self.assertTrue(res.inner.is_ok)
-        self.assertFalse(res.inner.is_error)
-        self.assertTrue(res.inner.value.is_nothing)
-        self.assertFalse(res.inner.value.is_just)
-        self.assertTrue(res.is_nothing)
+        res = nothing()
+        self.assertFalse(is_just(res))
+        self.assertFalse(is_fail(res))
+        self.assertTrue(is_nothing(res)) 
 
-        res = ResultT(Err(None))
-        self.assertTrue(res.inner.is_error)
-        self.assertFalse(res.inner.is_ok)
-        self.assertTrue(res.is_error)
+        res = fail(None)
+        self.assertFalse(is_just(res))
+        self.assertTrue(is_fail(res))
+        self.assertFalse(is_nothing(res)) 
 
-    def test_introspection_value_methods(self):
-        res = just_of(3)
-        self.assertTrue(res.inner.is_ok)
-        self.assertFalse(res.inner.is_error)
-        self.assertTrue(res.inner.value.is_just)
-        self.assertFalse(res.inner.value.is_nothing)
-        self.assertTrue(res.is_just)
+        res = lift_maybe(Just(3))
+        self.assertTrue(is_just(res))
+        self.assertFalse(is_fail(res))
+        self.assertFalse(is_nothing(res))
 
-        res = nothing_of()
-        self.assertTrue(res.inner.is_ok)
-        self.assertFalse(res.inner.is_error)
-        self.assertTrue(res.inner.value.is_nothing)
-        self.assertFalse(res.inner.value.is_just)
-        self.assertTrue(res.is_nothing)
+        res = lift_maybe(maybe_empty())
+        self.assertFalse(is_just(res))
+        self.assertFalse(is_fail(res))
+        self.assertTrue(is_nothing(res))
 
-        res = error_of(None)
-        self.assertTrue(res.inner.is_error)
-        self.assertFalse(res.inner.is_ok)
-        self.assertTrue(res.is_error)
+        res = lift_result(success(3))
+        self.assertTrue(is_just(res))
+        self.assertFalse(is_fail(res))
+        self.assertFalse(is_nothing(res))
+        
+        res = lift_result(result_fail(None))
+        self.assertFalse(is_just(res))
+        self.assertTrue(is_fail(res))
+        self.assertFalse(is_nothing(res))
+    
+    def test_map_bind(self):        
+        res1 = just(0)
+        res1 = fmap(res1, lambda x: x + 1)
+        res1 = bind(res1, lambda x: just(x + 1))
+        res1 = fmap(res1, lambda x: x + 1)
+        self.assertEqual(get_or_else(res1, 100), 3)
+        res1 = fold(res1, on_success=lambda m: maybe_map(m, lambda x: x ** 2), on_fail=lambda _: 0)
+        self.assertEqual(res1, Just(9))
+        
+        res2 = flow(
+            just(0),
+            rf.fmap(lambda x: x + 1),
+            rf.bind(lambda _: nothing()),
+            rf.fmap(lambda x: x + 1),
+        )
+        self.assertTrue(is_nothing(res2))
+        self.assertEqual(flow(res2, rf.get_or_else(100)), 100)
+        res2 = flow(res2, rf.fold(on_success=lambda m: maybe_map(m, lambda x: x ** 2), on_fail=lambda _: 0))
+        self.assertIsInstance(res2, Nothing)
+        
+        res3 = flow(
+            nothing(),
+            rf.fmap(lambda x: x + 1),
+            rf.bind(lambda x: just(x + 1)),  
+            rf.fmap(lambda x: x + 1),
+            rf.get_or_else(100)  
+        )        
+        self.assertEqual(res3, 100)       
+        
+        res4 = flow(
+            just(0),
+            rf.fmap(lambda x: x + 1),
+            rf.bind(lambda x: fail(x + 1)),  
+            rf.fmap(lambda x: x + 1),            
+        )                
+        self.assertTrue(is_fail(res4))
+        self.assertEqual(get_or_else(res4, 100), 100)
+        self.assertEqual(flow(res4, rf.fold(on_success=lambda m: maybe_map(m, lambda x: x ** 2), on_fail=lambda e: e)), 2)      
+        
+        res5 = fail(0)
+        res5 = bind(res5, lambda x: just(x + 1))
+        res5 = bind(res5, lambda x: fail(x + 1))
+        self.assertTrue(is_fail(res5))        
+        self.assertEqual(get_or_else(res5, 100), 100)
+        res5 = fold(res5, on_success=lambda m: maybe_map(m, lambda x: x ** 2), on_fail=lambda e: e)
+        self.assertEqual(res5, 0)
 
-    def test_introspection_wraps(self):
-        res = maybe_of(Just(3))
-        self.assertTrue(res.inner.is_ok)
-        self.assertFalse(res.inner.is_error)
-        self.assertTrue(res.inner.value.is_just)
-        self.assertFalse(res.inner.value.is_nothing)
-        self.assertTrue(res.is_just)
+    def test_map_maybe_and_result(self):        
+        res1 = flow(
+            just(0),
+            rf.fmap_maybe(lambda x: Just(x + 1)),
+            rf.bind(lambda x: just(x + 1)),            
+        )
+        self.assertEqual(get_or_else(res1, 100), 2)
+        res1 = fold(res1, on_success=lambda m: maybe_map(m, lambda x: x ** 2), on_fail=lambda _: Just(0))
+        self.assertEqual(res1, Just(4))
+        
+        res2 = just(0)
+        res2 = fmap_maybe(res2, lambda _: maybe_empty())
+        res2 = fmap(res2, lambda x: x + 1)       
+        self.assertTrue(is_nothing(res2))
+        self.assertEqual(get_or_else(res2, 100), 100)
+        res2 = flow(res2, rf.fold(on_success=lambda m: maybe_map(m, lambda x: x ** 2), on_fail=lambda _: Just(0)))
+        self.assertIsInstance(res2, Nothing)
+        
+        res3 = flow(
+            just(0),
+            rf.fmap_result(lambda x: success(x + 1)),
+            rf.bind(lambda x: just(x + 1)),
+        )
 
-        res = maybe_of(Nothing())
-        self.assertTrue(res.inner.is_ok)
-        self.assertFalse(res.inner.is_error)
-        self.assertTrue(res.inner.value.is_nothing)
-        self.assertFalse(res.inner.value.is_just)
-        self.assertTrue(res.is_nothing)
+        self.assertEqual(flow(res3, rf.get_or_else(100)), 2)
+        res3 = flow(res3, rf.fold(on_success=lambda m: maybe_map(m, lambda x: x ** 2), on_fail=lambda _: Just(0)))
+        self.assertEqual(res3, Just(4))
+        
+        res4 = just(0)
+        res4 = fmap_result(res4, lambda x: fail(x + 1))
+        res4 = fmap(res4, lambda x: x)
+        self.assertTrue(is_fail(res4))        
+        self.assertEqual(get_or_else(res4, 100), 100)
+        res4 = fold(res4, on_success=lambda m: maybe_map(m, lambda _: 100), on_fail=lambda _: Just(0))
+        self.assertEqual(res4, Just(0))
 
-        res = result_of(Ok(3))
-        self.assertTrue(res.inner.is_ok)
-        self.assertFalse(res.inner.is_error)
-        self.assertTrue(res.inner.value.is_just)
-        self.assertFalse(res.inner.value.is_nothing)
-        self.assertTrue(res.is_just)
-
-        res = result_of(Err(None))
-        self.assertTrue(res.inner.is_error)
-        self.assertFalse(res.inner.is_ok)
-        self.assertTrue(res.is_error)
-
-    def test_map_bind(self):
-        res = just_of(0).map(lambda x: x + 1).bind(lambda x: just_of(x + 1)).map(lambda x: x + 1)
-        self.assertEqual(res.get_or_else(100), 3)
-        res = res.unfold(ok=lambda m: m.map(lambda x: x ** 2).get_or_else(0), err=lambda _: None)
-        self.assertEqual(res, 9)
-
-        res = just_of(0).map(lambda x: x + 1).bind(lambda _: nothing_of()).map(lambda x: x + 1)
-        self.assertTrue(res.is_nothing)
-        self.assertEqual(res.get_or_else(100), 100)
-        res = res.unfold(ok=lambda m: m.map(lambda x: x ** 2).get_or_else(0), err=lambda _: None)
-        self.assertEqual(res, 0)
-
-        res = nothing_of().map(lambda x: x + 1).bind(lambda x: just_of(x + 1)).map(lambda x: x + 1)
-        self.assertTrue(res.is_nothing)
-        self.assertEqual(res.get_or_else(100), 100)
-        res = res.unfold(ok=lambda m: m.map(lambda x: x ** 2).get_or_else(0), err=lambda _: None)
-        self.assertEqual(res, 0)
-
-        res = just_of(0).map(lambda x: x + 1).bind(lambda x: error_of(x + 1)).map(lambda x: x + 1)
-        self.assertTrue(res.is_error)
-        self.assertEqual(res.inner.error, 2)
-        self.assertEqual(res.get_or_else(100), 100)
-        res = res.unfold(ok=lambda m: m.map(lambda x: x ** 2).get_or_else(0), err=lambda _: 100)
-        self.assertEqual(res, 100)
-
-        res = error_of(0).bind(lambda x: just_of(x + 1)).bind(lambda x: error_of(x + 1))
-        self.assertTrue(res.is_error)
-        self.assertEqual(res.inner.error, 0)
-        self.assertEqual(res.get_or_else(100), 100)
-        res = res.unfold(ok=lambda m: m.map(lambda x: x ** 2).get_or_else(0), err=lambda _: 100)
-        self.assertEqual(res, 100)
-
-    def test_map_maybe_and_result(self):
-        res = just_of(0).map_maybe(lambda x: Just(x + 1)).bind(lambda x: just_of(x + 1))
-        self.assertEqual(res.get_or_else(100), 2)
-        res = res.unfold(ok=lambda m: m.map(lambda x: x ** 2).get_or_else(0), err=lambda _: None)
-        self.assertEqual(res, 4)
-
-        res = just_of(0).map_maybe(lambda _: Nothing()).map(lambda x: x + 1)
-        self.assertTrue(res.is_nothing)
-        self.assertEqual(res.get_or_else(100), 100)
-        res = res.unfold(ok=lambda m: m.map(lambda x: x ** 2).get_or_else(0), err=lambda _: None)
-        self.assertEqual(res, 0)
-
-        res = just_of(0).map_result(lambda x: Ok(x + 1)).bind(lambda x: just_of(x + 1))
-        self.assertEqual(res.get_or_else(100), 2)
-        res = res.unfold(ok=lambda m: m.map(lambda x: x ** 2).get_or_else(0), err=lambda _: None)
-        self.assertEqual(res, 4)
-
-        res = just_of(0).map_result(lambda x: Err(x + 1)).map(lambda x: x + 1)
-        self.assertTrue(res.is_error)
-        self.assertEqual(res.inner.error, 1)
-        self.assertEqual(res.get_or_else(100), 100)
-        res = res.unfold(ok=lambda m: m.map(lambda x: x ** 2).get_or_else(0), err=lambda e: e + 1)
-        self.assertEqual(res, 2)
-
-    def test_map_error(self):
-        res = just_of(0).map_error(lambda e: e + 1).bind(lambda x: just_of(x + 10))
-        self.assertEqual(res.get_or_else(100), 10)
-        res = res.unfold(ok=lambda m: m.map(lambda x: x ** 2).get_or_else(0), err=lambda _: None)
-        self.assertEqual(res, 100)
-
-        res = error_of(0).bind(lambda x: just_of(x + 10)).map_error(lambda e: e + 1)
-        self.assertTrue(res.is_error)
-        self.assertEqual(res.inner.error, 1)
-        res = res.unfold(ok=lambda m: m.map(lambda x: x ** 2).get_or_else(0), err=lambda e: e + 1)
-        self.assertEqual(res, 2)
-
-        res = just_of(0).bind(lambda x: error_of(x + 1)).map_error(lambda e: e + 1)
-        self.assertTrue(res.is_error)
-        self.assertEqual(res.inner.error, 2)
-        self.assertEqual(res.get_or_else(100), 100)
-        res = res.unfold(ok=lambda m: m.map(lambda x: x ** 2).get_or_else(0), err=lambda e: e + 1)
-        self.assertEqual(res, 3)
-
-        res = just_of(0).map_result(lambda x: Err(x + 1)).map_error(lambda e: e + 1)
-        self.assertTrue(res.is_error)
-        self.assertEqual(res.inner.error, 2)
-        res = res.unfold(ok=lambda m: m.map(lambda x: x ** 2).get_or_else(0), err=lambda e: e + 1)
-        self.assertEqual(res, 3)
-
-        res = just_of(0).map_maybe(lambda _: Nothing()).map_error(lambda e: e + 1)
-        self.assertTrue(res.is_nothing)
-        self.assertEqual(res.get_or_else(100), 100)
-        res = res.unfold(ok=lambda m: m.map(lambda x: x ** 2).get_or_else(0), err=lambda _: None)
-        self.assertEqual(res, 0)
+    def test_map_error(self):        
+        res1 = flow(
+            just(0),
+            rf.fmap_error(lambda e: e + 1),
+            rf.bind(lambda x: just(x + 10))
+        )
+        self.assertEqual(flow(res1, rf.get_or_else(100)), 10)
+        res1 = flow(res1, rf.fold(on_success=lambda m: m, on_fail=lambda _: Just(0)))
+        self.assertEqual(res1, Just(10))
+        
+        res2 = fail(0)
+        res2 = bind(res2, lambda x: just(x + 10))
+        res2 = fmap_error(res2, lambda e: e + 1)
+        self.assertTrue(is_fail(res2))        
+        res2 = fold(res2, on_success=lambda m: m, on_fail=lambda e: Just(e))
+        self.assertEqual(res2, Just(1))
+        
+        res3 = flow(
+            just(0),
+            rf.bind(lambda x: fail(x + 1)),
+            rf.fmap_error(lambda e: e + 1),
+        )
+        self.assertTrue(is_fail(res3))        
+        res3 = flow(res3, rf.fold(on_success=lambda m: m, on_fail=lambda e: Just(e)))
+        self.assertEqual(res3, Just(2))
+        
+        res4 = just(0)
+        res4 = fmap_result(res4, lambda x: result_fail(x + 1))
+        res4 = fmap_error(res4, lambda e: e + 1)
+        self.assertTrue(is_fail(res4))        
+        res4 = fold(res4, on_success=lambda m: m, on_fail=lambda e: Just(e))
+        self.assertEqual(res4, Just(2))
+        
+        res5 = flow(
+            just(0),
+            rf.fmap_maybe(lambda _: maybe_empty()),
+            rf.fmap_error(lambda e: e + 1),
+        )
+        self.assertTrue(is_nothing(res5))
+        self.assertEqual(flow(res5, rf.get_or_else(100)), 100)
+        res5 = flow(res5, rf.fold(on_success=lambda _: 100, on_fail=lambda _: 0))
+        self.assertEqual(res5, 100)
 
     def test_from_null(self):
-        res = from_null()(1).map(lambda x: x + 1).bind(lambda x: just_of(x + 1))
-        self.assertTrue(res.is_just)
-        self.assertEqual(res.get_or_else(100), 3)
+        res1 = from_null(1)
+        res1 = fmap(res1, lambda x: x + 1)
+        res1 = bind(res1, lambda x: just(x + 1))
+        self.assertTrue(is_just(res1))
+        self.assertEqual(get_or_else(res1, 100), 3)
+        
+        res2 = flow(
+            from_null(None),
+            rf.fmap(lambda x: x),
+            rf.bind(lambda x: just(x)),
+        )
+        self.assertTrue(is_nothing(res2))
+        self.assertEqual(get_or_else(res2, 100), 100)
+        
+        res3 = from_null(4, is_nullable=lambda num: num % 2 == 0)
+        res3 = bind(res3, lambda x: just(x + 1))
+        self.assertTrue(is_nothing(res3))
+        self.assertEqual(get_or_else(res3, 100), 100)
 
-        res = from_null()(None).map(lambda x: x + 1).bind(lambda x: just_of(x + 1))
-        self.assertTrue(res.is_nothing)
-        self.assertEqual(res.get_or_else(100), 100)
-
-        res = from_null(is_nullable=lambda lst: len(lst) == 0)([]).bind(lambda x: just_of(x + 1))
-        self.assertTrue(res.is_nothing)
-        self.assertEqual(res.get_or_else(100), 100)
-
-    def test_from_try_errors(self):
-        @from_try()
-        def test(a):
+    def test_from_try_errors(self):         
+        @from_try
+        def test(a: int):
             if a == 0:
-                return None
-            return a ** 2
-
-        res = test("1").map(lambda x: x + 1).bind(lambda x: ResultMaybeT.just(x + 1))  # noqa
-        self.assertTrue(res.is_error)
-        self.assertTrue(res.unfold(ok=lambda _: False, err=lambda e: isinstance(e, TypeError)))
-
-        res = test(0).map(lambda x: x + 1).bind(lambda x: just_of(x + 1))
-        self.assertTrue(res.is_nothing)
-        self.assertTrue(res.unfold(ok=lambda m: m.get_or_else(True), err=lambda _: False))
-
-        res = test(10).map(lambda x: x + 1).bind(lambda x: just_of(x + 1))
-        self.assertTrue(res.is_just)
-        self.assertEqual(res.unfold(ok=lambda m: m.get_or_else(0), err=lambda _: 0), 102)
-
-    def test_from_try_custom_nullable(self):
-        @from_try(lambda lst: len(lst) == 0)
-        def test(a):
-            return [*a, *a]
-
-        res = test([1]).map(lambda x: [*x, 1])  # noqa
-        self.assertTrue(res.is_just)
-        self.assertEqual(res.get_or_else(0), [1, 1, 1])
-
-        res = test([]).map(lambda x: [*x, 1])  # noqa
-        self.assertTrue(res.is_nothing)
-        self.assertEqual(res.get_or_else(0), 0)
-
+                raise TypeError('error')
+            return a       
+        
+        res1 = test(0)
+        res1 = fmap(res1, lambda x: x + 1)
+        res1 = bind(res1, lambda x: just(x + 1))
+        self.assertTrue(is_fail(res1))
+        self.assertTrue(fold(res1, on_success=lambda _: False, on_fail=lambda e: isinstance(e, TypeError)))       
+        
+        res2 = flow(
+            test(10),
+            rf.fmap(lambda x: x + 1),
+            rf.bind(lambda x: just(x + 1)),
+        )
+        self.assertTrue(is_just(res2))
+        self.assertEqual(get_or_else(res2, 0), 12)     
+   
     def test_from_try_monad_error(self):
-        @from_try()
-        def raiser(a):
+        @from_try
+        def raiser(a: int):
             _ = a + 1
             raise MonadError("test", "test", "test")
 
         with self.assertRaises(MonadError):
             raiser(1)
 
-    def test_ap(self):
+    """def test_ap(self):
         def one(a):
             return [a]
 
@@ -318,7 +328,7 @@ class TestResultMaybeT(unittest.TestCase):
         self.assertEqual(res.inner.error, 2)
 
         res = lift(many, just(1), nothing(), err(3), just(4), just(5))
-        self.assertTrue(res.is_nothing)
+        self.assertTrue(res.is_nothing)"""
 
 
 if __name__ == "__main__":

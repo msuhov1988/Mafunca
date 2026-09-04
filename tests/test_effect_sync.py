@@ -2,7 +2,7 @@ import unittest
 
 from mafunca.common.exceptions import MonadError
 from mafunca.common.exceptions import ValidationError, RetryBadPauseError, RetryByExceptionError, RetryByValueError
-from mafunca.result import Ok, Err
+from mafunca.result_old import Ok, Err
 from mafunca.effect_sync import pure, delay, retry
 from mafunca.effect_sync import lift2, lift3, lift4
 from mafunca.effect_sync_transformer import pure as lift_pure, lift_error

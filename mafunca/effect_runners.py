@@ -5,7 +5,7 @@ import asyncio
 from typing import TypeVar, ParamSpec, Generic, overload, Any
 
 from mafunca.common.exceptions import RetryByExceptionError, RetryByValueError, RetryBadPauseError, MonadError
-from mafunca.result import Ok, Err, Result
+from mafunca.result_old import Ok, Err, Result
 from mafunca.effect_sync import Effect
 from mafunca.effect_sync_transformer import EffectResult
 from mafunca.effect_sync import Pure, Delay, Retry  # noqa
