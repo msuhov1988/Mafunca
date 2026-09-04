@@ -144,7 +144,7 @@ def lift4(
 
 
 def lift(fn: Callable[..., R], *args: Maybe[Any]) -> Maybe[R]:
-    unwrapped = list()
+    unwrapped: list[Any] = list()
     for arg in args:
         if isinstance(arg, Nothing):
             return arg

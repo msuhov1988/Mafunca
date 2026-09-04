@@ -56,24 +56,24 @@ class ResultT(Generic[T, E]):
     def map_maybe(self, fn: Callable[[T], Maybe[R]]) -> 'ResultT[R, E]':
         return ResultT(self.inner.map(lambda maybe: maybe.bind(fn)))
 
-    def map_result(self, fn: Callable[[T], Result[R, NewE]]) -> 'ResultT[R, E | NewE]':
+    def map_result(self, fn: Callable[[T], Result[R, E]]) -> 'ResultT[R, E]':
         if isinstance(self.inner, Err):
-            return cast(ResultT[R, E | NewE], self)
+            return cast(ResultT[R, E], self)
         maybe = self.inner.value
         if isinstance(maybe, Nothing):
-            return cast(ResultT[R, E | NewE], self)
+            return cast(ResultT[R, E], self)
         result = fn(maybe.value)
         if isinstance(result, Err):
-            return cast(ResultT[R, E | NewE], ResultT(result))
-        return cast(ResultT[R, E | NewE], ResultT(Ok(Just(result.value))))
+            return cast(ResultT[R, E], ResultT(result))
+        return cast(ResultT[R, E], ResultT(Ok(Just(result.value))))
 
-    def bind(self, fn: Callable[[T], 'ResultT[R, NewE]']) -> 'ResultT[R, E | NewE]':
+    def bind(self, fn: Callable[[T], 'ResultT[R, E]']) -> 'ResultT[R, E]':
         if isinstance(self.inner, Err):
-            return cast(ResultT[R, E | NewE], self)
+            return cast(ResultT[R, E], self)
         maybe = self.inner.value
         if isinstance(maybe, Nothing):
-            return cast(ResultT[R, E | NewE], self)
-        return cast(ResultT[R, E | NewE], fn(maybe.value))
+            return cast(ResultT[R, E], self)
+        return fn(maybe.value)
 
     def map_error(self, fn: Callable[[E], NewE]) -> 'ResultT[T, NewE]':
         return ResultT(self.inner.map_error(fn))
@@ -118,16 +118,11 @@ A2 = TypeVar("A2")
 A3 = TypeVar("A3")
 A4 = TypeVar("A4")
 
-E1 = TypeVar("E1")
-E2 = TypeVar("E2")
-E3 = TypeVar("E3")
-E4 = TypeVar("E4")
-
 
 def from_null(is_nullable: Callable[[R], bool] = lambda v: v is None) -> Callable[[R], ResultT[R, Never]]:
     """Closure. Wraps the result based on 'is_nullable' predicate."""
     def from_null_inner(value: R) -> ResultT[R, Never]:
-        return nothing_of() if is_nullable(value) else just_of(value)
+        return cast(ResultT[R, Never], nothing_of()) if is_nullable(value) else just_of(value)
 
     return from_null_inner
 
@@ -141,61 +136,61 @@ def from_try(is_nullable: Callable[[R], bool] = lambda v: v is None):
 
         def wrapper(*args: Args.args, **kwargs: Args.kwargs) -> ResultT[R, Exception]:
             try:
-                return from_null(is_nullable)(fn(*args, **kwargs))
+                return cast(ResultT[R, Exception], from_null(is_nullable)(fn(*args, **kwargs)))
             except Exception as err:
-                return error_of(err)
+                return cast(ResultT[R, Exception], error_of(err))
 
         return wraps(fn)(wrapper)
 
     return decorator
 
 
-def ap(fn: ResultT[Callable[[T], R], E2], val: ResultT[T, E1]) -> ResultT[R, E1 | E2]:
+def ap(fn: ResultT[Callable[[T], R], E], val: ResultT[T, E]) -> ResultT[R, E]:
     """
         Applies value enclosed in the container to a function also in the container.
     """
     if isinstance(fn.inner, Err):
-        return cast(ResultT[R, E1 | E2], fn)
+        return cast(ResultT[R, E], fn)
     if isinstance(fn.inner.value, Nothing):
-        return cast(ResultT[R, E1 | E2], fn)
+        return cast(ResultT[R, E], fn)
     if isinstance(val.inner, Err):
-        return cast(ResultT[R, E1 | E2], val)
+        return cast(ResultT[R, E], val)
     if isinstance(val.inner.value, Nothing):
-        return cast(ResultT[R, E1 | E2], val)
+        return cast(ResultT[R, E], val)
     func = fn.inner.value.value
     arg = val.inner.value.value
-    return cast(ResultT[R, E1 | E2], just_of(func(arg)))
+    return cast(ResultT[R, E], just_of(func(arg)))
 
 
 def lift2(
         fn: Callable[[A1, A2], R],
-        arg1: ResultT[A1, E1],
-        arg2: ResultT[A2, E2]
-) -> ResultT[R, E1 | E2]:
-    return ap(ap(just_of(curry2(fn)), arg1), arg2)
+        arg1: ResultT[A1, E],
+        arg2: ResultT[A2, E]
+) -> ResultT[R, E]:
+    return cast(ResultT[R, E], ap(ap(just_of(curry2(fn)), arg1), arg2))
 
 
 def lift3(
         fn: Callable[[A1, A2, A3], R],
-        arg1: ResultT[A1, E1],
-        arg2: ResultT[A2, E2],
-        arg3: ResultT[A3, E3]
-) -> ResultT[R, E1 | E2 | E3]:
-    return ap(ap(ap(just_of(curry3(fn)), arg1), arg2), arg3)
+        arg1: ResultT[A1, E],
+        arg2: ResultT[A2, E],
+        arg3: ResultT[A3, E]
+) -> ResultT[R, E]:
+    return cast(ResultT[R, E], ap(ap(ap(just_of(curry3(fn)), arg1), arg2), arg3))
 
 
 def lift4(
         fn: Callable[[A1, A2, A3, A4], R],
-        arg1: ResultT[A1, E1],
-        arg2: ResultT[A2, E2],
-        arg3: ResultT[A3, E3],
-        arg4: ResultT[A4, E4],
-) -> ResultT[R, E1 | E2 | E3 | E4]:
-    return ap(ap(ap(ap(just_of(curry4(fn)), arg1), arg2), arg3), arg4)
+        arg1: ResultT[A1, E],
+        arg2: ResultT[A2, E],
+        arg3: ResultT[A3, E],
+        arg4: ResultT[A4, E],
+) -> ResultT[R, E]:
+    return cast(ResultT[R, E], ap(ap(ap(ap(just_of(curry4(fn)), arg1), arg2), arg3), arg4))
 
 
 def lift(fn: Callable[..., R], *args: ResultT[Any, Any]) -> ResultT[R, Any]:
-    unwrapped = list()
+    unwrapped: list[Any] = list()
     for arg in args:
         if isinstance(arg.inner, Err):
             return arg

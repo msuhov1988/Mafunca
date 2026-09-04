@@ -64,16 +64,16 @@ class MaybeT(Generic[T, E]):
             return MaybeT(maybe)
         return MaybeT(Just(Ok(maybe.value)))
 
-    def map_result(self, fn: Callable[[T], Result[R, NewE]]) -> 'MaybeT[R, E | NewE]':
-        return cast(MaybeT[R, E | NewE], MaybeT(self.inner.map(lambda result: result.bind(fn))))
+    def map_result(self, fn: Callable[[T], Result[R, E]]) -> 'MaybeT[R, E]':
+        return MaybeT(self.inner.map(lambda result: result.bind(fn)))
 
-    def bind(self, fn: Callable[[T], 'MaybeT[R, NewE]']) -> 'MaybeT[R, E | NewE]':
+    def bind(self, fn: Callable[[T], 'MaybeT[R, E]']) -> 'MaybeT[R, E]':
         if isinstance(self.inner, Nothing):
-            return cast(MaybeT[R, E | NewE], self)
+            return cast(MaybeT[R, E], self)
         result = self.inner.value
         if isinstance(result, Err):
-            return cast(MaybeT[R, E | NewE], self)
-        return cast(MaybeT[R, E | NewE], fn(result.value))
+            return cast(MaybeT[R, E], self)
+        return fn(result.value)
 
     def map_error(self, fn: Callable[[E], NewE]) -> 'MaybeT[T, NewE]':
         return MaybeT(self.inner.map(lambda result: result.map_error(fn)))
@@ -118,16 +118,11 @@ A2 = TypeVar("A2")
 A3 = TypeVar("A3")
 A4 = TypeVar("A4")
 
-E1 = TypeVar("E1")
-E2 = TypeVar("E2")
-E3 = TypeVar("E3")
-E4 = TypeVar("E4")
-
 
 def from_null(is_nullable: Callable[[R], bool] = lambda v: v is None) -> Callable[[R], MaybeT[R, Never]]:
     """Closure. Wraps the result based on 'is_nullable' predicate."""
     def from_null_inner(value: R) -> MaybeT[R, Never]:
-        return nothing_of() if is_nullable(value) else ok_of(value)
+        return cast(MaybeT[R, Never], nothing_of()) if is_nullable(value) else ok_of(value)
 
     return from_null_inner
 
@@ -141,61 +136,61 @@ def from_try(is_nullable: Callable[[R], bool] = lambda v: v is None):
 
         def wrapper(*args: Args.args, **kwargs: Args.kwargs) -> MaybeT[R, Exception]:
             try:
-                return from_null(is_nullable)(fn(*args, **kwargs))
+                return cast(MaybeT[R, Exception], from_null(is_nullable)(fn(*args, **kwargs)))
             except Exception as err:
-                return error_of(err)
+                return cast(MaybeT[R, Exception], error_of(err))
 
         return wraps(fn)(wrapper)
 
     return decorator
 
 
-def ap(fn: MaybeT[Callable[[T], R], E2], val: MaybeT[T, E1]) -> MaybeT[R, E1 | E2]:
+def ap(fn: MaybeT[Callable[[T], R], E], val: MaybeT[T, E]) -> MaybeT[R, E]:
     """
         Applies value enclosed in the container to a function also in the container.
     """
     if isinstance(fn.inner, Nothing):
-        return cast(MaybeT[R, E1 | E2], fn)
+        return cast(MaybeT[R, E], fn)
     if isinstance(fn.inner.value, Err):
-        return cast(MaybeT[R, E1 | E2], fn)
+        return cast(MaybeT[R, E], fn)
     if isinstance(val.inner, Nothing):
-        return cast(MaybeT[R, E1 | E2], val)
+        return cast(MaybeT[R, E], val)
     if isinstance(val.inner.value, Err):
-        return cast(MaybeT[R, E1 | E2], val)
+        return cast(MaybeT[R, E], val)
     func = fn.inner.value.value
     arg = val.inner.value.value
-    return cast(MaybeT[R, E1 | E2], ok_of(func(arg)))
+    return cast(MaybeT[R, E], ok_of(func(arg)))
 
 
 def lift2(
         fn: Callable[[A1, A2], R],
-        arg1: MaybeT[A1, E1],
-        arg2: MaybeT[A2, E2]
-) -> MaybeT[R, E1 | E2]:
-    return ap(ap(ok_of(curry2(fn)), arg1), arg2)
+        arg1: MaybeT[A1, E],
+        arg2: MaybeT[A2, E]
+) -> MaybeT[R, E]:
+    return cast(MaybeT[R, E], ap(ap(ok_of(curry2(fn)), arg1), arg2))
 
 
 def lift3(
         fn: Callable[[A1, A2, A3], R],
-        arg1: MaybeT[A1, E1],
-        arg2: MaybeT[A2, E2],
-        arg3: MaybeT[A3, E3]
-) -> MaybeT[R, E1 | E2 | E3]:
-    return ap(ap(ap(ok_of(curry3(fn)), arg1), arg2), arg3)
+        arg1: MaybeT[A1, E],
+        arg2: MaybeT[A2, E],
+        arg3: MaybeT[A3, E]
+) -> MaybeT[R, E]:
+    return cast(MaybeT[R, E], ap(ap(ap(ok_of(curry3(fn)), arg1), arg2), arg3))
 
 
 def lift4(
         fn: Callable[[A1, A2, A3, A4], R],
-        arg1: MaybeT[A1, E1],
-        arg2: MaybeT[A2, E2],
-        arg3: MaybeT[A3, E3],
-        arg4: MaybeT[A4, E4]
-) -> MaybeT[R, E1 | E2 | E3 | E4]:
-    return ap(ap(ap(ap(ok_of(curry4(fn)), arg1), arg2), arg3), arg4)
+        arg1: MaybeT[A1, E],
+        arg2: MaybeT[A2, E],
+        arg3: MaybeT[A3, E],
+        arg4: MaybeT[A4, E]
+) -> MaybeT[R, E]:
+    return cast(MaybeT[R, E], ap(ap(ap(ap(ok_of(curry4(fn)), arg1), arg2), arg3), arg4))
 
 
 def lift(fn: Callable[..., R], *args: MaybeT[Any, Any]) -> MaybeT[R, Any]:
-    unwrapped = list()
+    unwrapped: list[Any] = list()
     for arg in args:
         if isinstance(arg.inner, Nothing):
             return arg

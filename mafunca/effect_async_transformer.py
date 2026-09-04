@@ -52,7 +52,7 @@ class AffResult(Generic[A, E]):
         panic_on_coroutine(fn, self.__class__.__name__, 'map')
         return AffResult(BindAsync(self.inner, lambda res: PureAsync(res.map(fn))))
 
-    def map_result(self, fn: Callable[[A], Result[B, NewE]]) -> AffResult[B, E | NewE]:
+    def map_result(self, fn: Callable[[A], Result[B, E]]) -> AffResult[B, E]:
         """
             Only for SYNCHRONOUS functions - pure calculation
             :raises MonadError: coroutine functions are not allowed
@@ -68,7 +68,7 @@ class AffResult(Generic[A, E]):
         panic_on_coroutine(fn, self.__class__.__name__, 'map_error')
         return AffResult(BindAsync(self.inner, lambda res: PureAsync(res.map_error(fn))))
 
-    def bind(self, fn: Callable[[A], AffResult[B, NewE]]) -> AffResult[B, E | NewE]:
+    def bind(self, fn: Callable[[A], AffResult[B, E]]) -> AffResult[B, E]:
         """
             The function that returns the effect must be SYNCHRONOUS.
             Asynchrony is assumed inside the effect
@@ -76,7 +76,7 @@ class AffResult(Generic[A, E]):
         """
         panic_on_coroutine(fn, self.__class__.__name__, 'bind')
 
-        def continuation(arg: Result[A, E]) -> Aff[Result[B, E | NewE]]:
+        def continuation(arg: Result[A, E]) -> Aff[Result[B, E]]:
             if isinstance(arg, Err):
                 return PureAsync(arg)
             return fn(arg.value).inner
@@ -98,8 +98,8 @@ class AffResult(Generic[A, E]):
     def catch_map_result(
             self,
             exc_type: type[Exc] | type[TimeoutError],
-            catcher: Callable[[Exc | TimeoutError], Result[A, NewE]]
-    ) -> AffResult[A, E | NewE]:
+            catcher: Callable[[Exc | TimeoutError], Result[A, E]]
+    ) -> AffResult[A, E]:
         """
             Only for SYNCHRONOUS catchers - pure calculation
             :raises MonadError: coroutine functions are not allowed
@@ -110,8 +110,8 @@ class AffResult(Generic[A, E]):
     def catch_bind(
             self,
             exc_type: type[Exc] | type[TimeoutError],
-            catcher: Callable[[Exc | TimeoutError], AffResult[A, NewE]]
-    ) -> AffResult[A, E | NewE]:
+            catcher: Callable[[Exc | TimeoutError], AffResult[A, E]]
+    ) -> AffResult[A, E]:
         """
             The catcher that returns the effect must be SYNCHRONOUS.
             Asynchrony is assumed inside the effect
@@ -211,32 +211,32 @@ E3 = TypeVar("E3")
 E4 = TypeVar("E4")
 
 
-def _ap(wrapped_fn: AffResult[Callable[[A], B], E2], wrapped_val: AffResult[A, E1]) -> AffResult[B, E1 | E2]:
-    return cast(AffResult[B, E1 | E2], wrapped_fn.bind(lambda fn: wrapped_val.map(lambda val: fn(val))))
+def _ap(wrapped_fn: AffResult[Callable[[A], B], E], wrapped_val: AffResult[A, E]) -> AffResult[B, E]:
+    return wrapped_fn.bind(lambda fn: wrapped_val.map(lambda val: fn(val)))
 
 
 def lift2(
         fn: Callable[[A1, A2], B],
-        arg1: AffResult[A1, E1],
-        arg2: AffResult[A2, E2]
-) -> AffResult[B, E1 | E2]:
-    return _ap(_ap(pure(curry2(fn)), arg1), arg2)
+        arg1: AffResult[A1, E],
+        arg2: AffResult[A2, E]
+) -> AffResult[B, E]:
+    return cast(AffResult[B, E], _ap(_ap(pure(curry2(fn)), arg1), arg2))
 
 
 def lift3(
         fn: Callable[[A1, A2, A3], B],
-        arg1: AffResult[A1, E1],
-        arg2: AffResult[A2, E2],
-        arg3: AffResult[A3, E3]
-) -> AffResult[B, E1 | E2 | E3]:
-    return _ap(_ap(_ap(pure(curry3(fn)), arg1), arg2), arg3)
+        arg1: AffResult[A1, E],
+        arg2: AffResult[A2, E],
+        arg3: AffResult[A3, E]
+) -> AffResult[B, E]:
+    return cast(AffResult[B, E], _ap(_ap(_ap(pure(curry3(fn)), arg1), arg2), arg3))
 
 
 def lift4(
         fn: Callable[[A1, A2, A3, A4], B],
-        arg1: AffResult[A1, E1],
-        arg2: AffResult[A2, E2],
-        arg3: AffResult[A3, E3],
-        arg4: AffResult[A4, E4],
-) -> AffResult[B, E1 | E2 | E3 | E4]:
-    return _ap(_ap(_ap(_ap(pure(curry4(fn)), arg1), arg2), arg3), arg4)
+        arg1: AffResult[A1, E],
+        arg2: AffResult[A2, E],
+        arg3: AffResult[A3, E],
+        arg4: AffResult[A4, E],
+) -> AffResult[B, E]:
+    return cast(AffResult[B, E], _ap(_ap(_ap(_ap(pure(curry4(fn)), arg1), arg2), arg3), arg4))

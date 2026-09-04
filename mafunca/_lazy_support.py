@@ -1,14 +1,14 @@
 import inspect
-from collections.abc import Callable
+from typing import Any
 
 from mafunca.common.exceptions import MonadError
 
 
-def _extract_name(func) -> str:
+def _extract_name(func: Any) -> str:
     return getattr(func, "__qualname__", getattr(func, "__name__", f"{func}"))
 
 
-def panic_on_coroutine(fn: Callable, monad_name: str, method_name: str):
+def panic_on_coroutine(fn: Any, monad_name: str, method_name: str):
     """
        Internal.
        Panic when the monadic contract is violated - function must be sync.

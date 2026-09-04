@@ -48,7 +48,7 @@ class EffectResult(Generic[A, E]):
         panic_on_coroutine(fn, self.__class__.__name__, 'map')
         return EffectResult(Bind(self.inner, lambda res: Pure(res.map(fn))))
 
-    def map_result(self, fn: Callable[[A], Result[B, NewE]]) -> EffectResult[B, E | NewE]:
+    def map_result(self, fn: Callable[[A], Result[B, E]]) -> EffectResult[B, E]:
         """:raises MonadError: coroutine functions are not allowed"""
         panic_on_coroutine(fn, self.__class__.__name__, 'map_result')
         return EffectResult(Bind(self.inner, lambda res: Pure(res.bind(fn))))
@@ -58,11 +58,11 @@ class EffectResult(Generic[A, E]):
         panic_on_coroutine(fn, self.__class__.__name__, 'map_error')
         return EffectResult(Bind(self.inner, lambda res: Pure(res.map_error(fn))))
 
-    def bind(self, fn: Callable[[A], EffectResult[B, NewE]]) -> EffectResult[B, E | NewE]:
+    def bind(self, fn: Callable[[A], EffectResult[B, E]]) -> EffectResult[B, E]:
         """:raises MonadError: coroutine functions are not allowed"""
         panic_on_coroutine(fn, self.__class__.__name__, 'bind')
 
-        def continuation(arg: Result[A, E]) -> Effect[Result[B, E | NewE]]:
+        def continuation(arg: Result[A, E]) -> Effect[Result[B, E]]:
             if isinstance(arg, Err):
                 return Pure(arg)
             return fn(arg.value).inner
@@ -77,8 +77,8 @@ class EffectResult(Generic[A, E]):
     def catch_map_result(
             self,
             exc_type: type[Exc],
-            catcher: Callable[[Exc], Result[A, NewE]]
-    ) -> EffectResult[A, E | NewE]:
+            catcher: Callable[[Exc], Result[A, E]]
+    ) -> EffectResult[A, E]:
         """:raises MonadError: coroutine functions are not allowed"""
         panic_on_coroutine(catcher, self.__class__.__name__, 'catch_map_result')
         return EffectResult(Catch(self.inner, exc_type, lambda exc: Pure(catcher(exc))))
@@ -86,8 +86,8 @@ class EffectResult(Generic[A, E]):
     def catch_bind(
             self,
             exc_type: type[Exc],
-            catcher: Callable[[Exc], EffectResult[A, NewE]]
-    ) -> EffectResult[A, E | NewE]:
+            catcher: Callable[[Exc], EffectResult[A, E]]
+    ) -> EffectResult[A, E]:
         """:raises MonadError: coroutine functions are not allowed"""
         panic_on_coroutine(catcher, self.__class__.__name__, 'catch_bind')
         return EffectResult(Catch(self.inner, exc_type, lambda exc: catcher(exc).inner))
@@ -165,38 +165,33 @@ A2 = TypeVar("A2")
 A3 = TypeVar("A3")
 A4 = TypeVar("A4")
 
-E1 = TypeVar("E1")
-E2 = TypeVar("E2")
-E3 = TypeVar("E3")
-E4 = TypeVar("E4")
 
-
-def _ap(wrapped_fn: EffectResult[Callable[[A], B], E2], wrapped_val: EffectResult[A, E1]) -> EffectResult[B, E1 | E2]:
-    return cast(EffectResult[B, E1 | E2], wrapped_fn.bind(lambda fn: wrapped_val.map(lambda val: fn(val))))
+def _ap(wrapped_fn: EffectResult[Callable[[A], B], E], wrapped_val: EffectResult[A, E]) -> EffectResult[B, E]:
+    return wrapped_fn.bind(lambda fn: wrapped_val.map(lambda val: fn(val)))
 
 
 def lift2(
         fn: Callable[[A1, A2], B],
-        arg1: EffectResult[A1, E1],
-        arg2: EffectResult[A2, E2]
-) -> EffectResult[B, E1 | E2]:
-    return _ap(_ap(pure(curry2(fn)), arg1), arg2)
+        arg1: EffectResult[A1, E],
+        arg2: EffectResult[A2, E]
+) -> EffectResult[B, E]:
+    return cast(EffectResult[B, E], _ap(_ap(pure(curry2(fn)), arg1), arg2))
 
 
 def lift3(
         fn: Callable[[A1, A2, A3], B],
-        arg1: EffectResult[A1, E1],
-        arg2: EffectResult[A2, E2],
-        arg3: EffectResult[A3, E3]
-) -> EffectResult[B, E1 | E2 | E3]:
-    return _ap(_ap(_ap(pure(curry3(fn)), arg1), arg2), arg3)
+        arg1: EffectResult[A1, E],
+        arg2: EffectResult[A2, E],
+        arg3: EffectResult[A3, E]
+) -> EffectResult[B, E]:
+    return cast(EffectResult[B, E], _ap(_ap(_ap(pure(curry3(fn)), arg1), arg2), arg3))
 
 
 def lift4(
         fn: Callable[[A1, A2, A3, A4], B],
-        arg1: EffectResult[A1, E1],
-        arg2: EffectResult[A2, E2],
-        arg3: EffectResult[A3, E3],
-        arg4: EffectResult[A4, E4],
-) -> EffectResult[B, E1 | E2 | E3 | E4]:
-    return _ap(_ap(_ap(_ap(pure(curry4(fn)), arg1), arg2), arg3), arg4)
+        arg1: EffectResult[A1, E],
+        arg2: EffectResult[A2, E],
+        arg3: EffectResult[A3, E],
+        arg4: EffectResult[A4, E],
+) -> EffectResult[B, E]:
+    return cast(EffectResult[B, E], _ap(_ap(_ap(_ap(pure(curry4(fn)), arg1), arg2), arg3), arg4))
