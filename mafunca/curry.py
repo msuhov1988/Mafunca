@@ -109,16 +109,17 @@ def _curry_step(fn, signature, positioned_args, named_args) -> Callable[..., Uni
     def _curry_step_inner(*args, **kwargs) -> Union[Callable, R]:
         try:
             bound_args = _apply(signature, *args, **kwargs)
-            new_params = [par for name, par in signature.parameters.items() if name not in bound_args.arguments]
-            if len(new_params) == 0:
-                return fn(*positioned_args, *bound_args.args, **named_args, **bound_args.kwargs)
-
-            new_sig = inspect.Signature(parameters=new_params)
-            new_pos = [*positioned_args, *bound_args.args]
-            new_named = {**named_args, **bound_args.kwargs}
-            return _curry_step(fn, new_sig, new_pos, new_named)
         except TypeError as err:
             raise CurryBadArguments(func_name=_extract_name(fn), err=err.args[0]) from None
+
+        new_params = [par for name, par in signature.parameters.items() if name not in bound_args.arguments]
+        if len(new_params) == 0:
+            return fn(*positioned_args, *bound_args.args, **named_args, **bound_args.kwargs)
+
+        new_sig = inspect.Signature(parameters=new_params)
+        new_pos = [*positioned_args, *bound_args.args]
+        new_named = {**named_args, **bound_args.kwargs}
+        return _curry_step(fn, new_sig, new_pos, new_named)
 
     return wraps(fn)(_curry_step_inner)
 
@@ -135,3 +136,7 @@ def curry(fn: Callable[..., R]) -> Callable[..., Union[Callable, R]]:
         return _curry_step(fn, inspect.signature(fn), list(), dict())(*args, **kwargs)
 
     return wraps(fn)(curried)
+
+
+def test(a, b, c):
+    raise TypeError("")
