@@ -1,4 +1,4 @@
-from typing import TypeVar, Generic
+from typing import TypeVar, Any
 
 
 A = TypeVar("A")
@@ -11,7 +11,7 @@ class MonadError(BaseException):
        Separated - not in the error hierarchy of this library.
     """
     def __init__(self, monad: str, method: str, message: str):
-        text = f"violation of the {monad}-{method} contract - {message}"
+        text = f"violation of the {monad} - {method} contract: {message}"
         super().__init__(text)
 
 
@@ -41,11 +41,11 @@ class ValidationError(MafuncaBaseError):
         super().__init__(err)
 
 
-class RetryByExceptionError(MafuncaBaseError, Generic[A]):
+class RetryByExceptionError(MafuncaBaseError):
     """An error is thrown when attempts are exhausted for nodes with retries"""
     def __init__(
             self,
-            previous_result: A,
+            previous_result: Any,
             previous_result_is_assigned: bool,
             exception: Exception,
             step_name: str
@@ -58,13 +58,13 @@ class RetryByExceptionError(MafuncaBaseError, Generic[A]):
         self.step_name = name
 
 
-class RetryByValueError(MafuncaBaseError, Generic[A, B]):
+class RetryByValueError(MafuncaBaseError):
     """An error is thrown when attempts are exhausted for nodes with retries"""
     def __init__(
             self,
-            previous_result: A,
+            previous_result: Any,
             previous_result_is_assigned: bool,
-            current_result: B,
+            current_result: Any,
             step_name: str
     ):
         name = f" {step_name}" if step_name else ""

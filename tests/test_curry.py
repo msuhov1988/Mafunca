@@ -50,7 +50,7 @@ class TestCurry(unittest.TestCase):
 
     def test_curry_variant_args(self):
         @curry
-        def for_curry(a: int, b: int, *args, **kwargs) -> list:
+        def for_curry(a: int, b: int, *args: int, **kwargs: int) -> list[int | tuple[int, ...] | dict[str, int]]:
             return [a, b, args, kwargs]
 
         res = for_curry(1, b=2)
@@ -63,7 +63,7 @@ class TestCurry(unittest.TestCase):
     def test_curry_repeatable_currying(self):
         @curry
         @curry
-        def for_curry(a: int, b: int, *args, **kwargs) -> list:
+        def for_curry(a: int, b: int, *args: int, **kwargs: int) -> list[int | tuple[int, ...] | dict[str, int]]:
             return [a, b, args, kwargs]
 
         res = for_curry(1, b=2)
@@ -84,12 +84,35 @@ class TestCurry(unittest.TestCase):
 
     def test_curry_fail_fast(self):
         @curry
-        def for_curry(a, b):
+        def for_curry(a: int, b: int):
             return a + b
 
         with self.assertRaises(CurryBadArguments):
             for_curry(c=1)
         self.assertEqual(for_curry(1)(b=2), 3)
+
+    def test_curry_method(self):
+        class Test:
+            def __init__(self, value: int):
+                self.val = value
+
+            @curry
+            def add(self, one: int, two: int, three: int):
+                return [self.val, one, two, three]
+
+            def bounded(self, one: int, two: int, three: int):
+                return [self.val, one, two, three]
+
+        t = Test(1)
+        self.assertEqual(Test.add(t)(2)(3)(4), [1, 2, 3, 4])
+        self.assertEqual(t.add(2)(3)(4), [1, 2, 3, 4])
+        self.assertEqual(t.add(three=2)(two=3)(one=4), [1, 4, 3, 2])
+        self.assertEqual(t.add(two=2, one=3)(three=4), [1, 3, 2, 4])
+
+        bounded = curry(t.bounded)
+        self.assertEqual(bounded(2)(3)(4), [1, 2, 3, 4])
+        self.assertEqual(bounded(three=2)(two=3)(one=4), [1, 4, 3, 2])
+        self.assertEqual(bounded(two=2, one=3)(three=4), [1, 3, 2, 4])
 
 
 class TestAsyncCurry(unittest.IsolatedAsyncioTestCase):

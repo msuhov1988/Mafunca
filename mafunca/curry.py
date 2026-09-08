@@ -1,7 +1,7 @@
 import inspect
 from collections.abc import Callable
 from functools import wraps
-from typing import TypeVar, Union
+from typing import TypeVar, Any
 
 from mafunca.common.exceptions import CurryBadFunctionError, CurryBadArguments
 
@@ -74,43 +74,56 @@ def curry4(fn: Callable[[A, B, C, D], R]) -> Callable[[A], Callable[[B], Callabl
     return curry4_step1
 
 
-def _extract_name(func) -> str:
+def _extract_name(func: Callable[..., Any]) -> str:
     return getattr(func, "__qualname__", getattr(func, "__name__", f"{func}"))
 
 
-def _panic_on_bad_curried(func):
+def _panic_on_bad_curried(func: Callable[..., Any]):
     """
        Panic on improper entity for currying.
+       
        :raises CurryBadFunctionError:
     """
     if not callable(func):
         raise CurryBadFunctionError(func_name=_extract_name(func), err="must be a callable object")
     if inspect.isbuiltin(func):
-        raise CurryBadFunctionError(func_name=_extract_name(func), err="should not be a built-in function")
-    if inspect.ismethod(func):
-        raise CurryBadFunctionError(func_name=_extract_name(func), err="should not be a bound method")
+        raise CurryBadFunctionError(func_name=_extract_name(func), err="should not be a built-in function")    
 
 
-def _apply(sig: inspect.Signature, *args, **kwargs) -> inspect.BoundArguments:
+def _apply(fn: Callable[..., Any], sig: inspect.Signature, *args: Any, **kwargs: Any) -> inspect.BoundArguments:
     """
         Applying arguments to a function signature.
+
         :raises TypeError: error of 'bind_partial' method.
     """
-    bound_args = sig.bind_partial(*args, **kwargs)
-    if len(args) == 0 and len(kwargs) == 0:
-        bound_args.apply_defaults()
-        for name, par in sig.parameters.items():
-            if par.kind == inspect.Parameter.VAR_KEYWORD or par.kind == inspect.Parameter.VAR_POSITIONAL:
-                bound_args.arguments.pop(name, None)
-    return bound_args
+    try:
+        bound_args = sig.bind_partial(*args, **kwargs)
+        if len(args) == 0 and len(kwargs) == 0:
+            bound_args.apply_defaults()
+            for name, par in sig.parameters.items():
+                if par.kind == inspect.Parameter.VAR_KEYWORD or par.kind == inspect.Parameter.VAR_POSITIONAL:
+                    bound_args.arguments.pop(name, None)
+        return bound_args
+    except TypeError as err:
+        raise CurryBadArguments(func_name=_extract_name(fn), err=err.args[0]) from None 
 
 
-def _curry_step(fn, signature, positioned_args, named_args) -> Callable[..., Union[Callable, R]]:
-    def _curry_step_inner(*args, **kwargs) -> Union[Callable, R]:
-        try:
-            bound_args = _apply(signature, *args, **kwargs)
-        except TypeError as err:
-            raise CurryBadArguments(func_name=_extract_name(fn), err=err.args[0]) from None
+def _curry_step(
+        fn: Callable[..., Any],
+        signature: inspect.Signature, 
+        positioned_args: list[Any], 
+        named_args: dict[str, Any]
+    ) -> Callable[..., Any]:
+
+    def _curry_step_inner(*args: Any, **kwargs: Any) -> Any: 
+        bound_args = _apply(fn, signature, *args, **kwargs)
+        new_params = [par for name, par in signature.parameters.items() if name not in bound_args.arguments]
+        if len(new_params) == 0:
+            return fn(*positioned_args, *bound_args.args, **named_args, **bound_args.kwargs)
+
+        new_sig = inspect.Signature(parameters=new_params)
+        new_pos = [*positioned_args, *bound_args.args]
+        new_named = {**named_args, **bound_args.kwargs}
 
         new_params = [par for name, par in signature.parameters.items() if name not in bound_args.arguments]
         if len(new_params) == 0:
@@ -124,19 +137,16 @@ def _curry_step(fn, signature, positioned_args, named_args) -> Callable[..., Uni
     return wraps(fn)(_curry_step_inner)
 
 
-def curry(fn: Callable[..., R]) -> Callable[..., Union[Callable, R]]:
+def curry(fn: Callable[..., Any]) -> Any:
     """
         Currying decorator for a function with an arbitrary signature.
+
         :raises CurryBadFunctionError: passed function is not suitable
         :raises CurryBadArguments: error at the level of the arguments being passed
     """
     _panic_on_bad_curried(func=fn)
 
-    def curried(*args, **kwargs) -> Union[Callable, R]:
+    def curried(*args: Any, **kwargs: Any) -> Any:
         return _curry_step(fn, inspect.signature(fn), list(), dict())(*args, **kwargs)
 
     return wraps(fn)(curried)
-
-
-def test(a, b, c):
-    raise TypeError("")
