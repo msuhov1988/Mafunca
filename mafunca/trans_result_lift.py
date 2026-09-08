@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from typing import TypeVar, cast, Any
 
-from mafunca.result_maybe import ResultMaybe
+from mafunca.trans_result import ResultMaybe
 from mafunca.maybe import Just, Nothing
 from mafunca.result import Success, Fail
 

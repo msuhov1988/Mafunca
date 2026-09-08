@@ -53,10 +53,10 @@ def ap(maybe: Maybe[T]) -> Callable[[Maybe[Callable[[T], R]]], Maybe[R]]:
         Applies value enclosed in the Maybe to a function also in the Maybe.
     """
     def ap_inner(fn: Maybe[Callable[[T], R]]) -> Maybe[R]:        
-        if isinstance(maybe, Nothing):
-            return maybe
         if isinstance(fn, Nothing):
             return fn
+        if isinstance(maybe, Nothing):
+            return maybe        
         return Just(fn.value(maybe.value))
 
     return ap_inner

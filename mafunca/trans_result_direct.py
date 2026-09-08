@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from typing import TypeVar, cast
 
-from mafunca.result_maybe import ResultMaybe
+from mafunca.trans_result import ResultMaybe
 from mafunca.maybe import Just, Nothing, Maybe
 from mafunca.result import Success, Fail, Result
 
@@ -74,16 +74,16 @@ def ap(result_m: ResultMaybe[T, E], fn: ResultMaybe[Callable[[T], R], E]) -> Res
     """
         Applies value enclosed in the container to a function also in the container.
     """   
-    if isinstance(result_m, Fail):
-        return result_m
-    res_inner = result_m.value
-    if isinstance(res_inner, Nothing):
-        return cast(ResultMaybe[R, E], result_m)  
     if isinstance(fn, Fail):
         return fn
     fn_inner = fn.value
     if isinstance(fn_inner, Nothing):
-        return cast(ResultMaybe[R, E], fn)     
+        return cast(ResultMaybe[R, E], fn) 
+    if isinstance(result_m, Fail):
+        return result_m
+    res_inner = result_m.value
+    if isinstance(res_inner, Nothing):
+        return cast(ResultMaybe[R, E], result_m)         
     arg = res_inner.value
     func = fn_inner.value
     return Success(Just(func(arg)))

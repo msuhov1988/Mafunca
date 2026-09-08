@@ -45,8 +45,8 @@ def ap(result: Result[T, E], fn: Result[Callable[[T], R], E]) -> Result[R, E]:
     """
         Applies value enclosed in the Result to a function also in the Result.
     """
-    if isinstance(result, Fail):
-        return result 
     if isinstance(fn, Fail):
-        return fn       
+        return fn 
+    if isinstance(result, Fail):
+        return result           
     return Success(fn.value(result.value))

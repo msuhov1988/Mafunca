@@ -36,8 +36,8 @@ def ap(maybe: Maybe[T], fn: Maybe[Callable[[T], R]]) -> Maybe[R]:
     """
         Applies value enclosed in the Result to a function also in the Result.
     """  
-    if isinstance(maybe, Nothing):
-        return maybe
     if isinstance(fn, Nothing):
         return fn
+    if isinstance(maybe, Nothing):
+        return maybe    
     return Just(fn.value(maybe.value))

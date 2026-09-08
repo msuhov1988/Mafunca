@@ -30,6 +30,7 @@ class TestResult(unittest.TestCase):
         self.assertTrue(is_fail(err2))
 
     def test_ok_chains(self):
+        
         res1 = success(2)
         res1 = fmap(res1, lambda x: x + 1)
         res1 = bind(res1, lambda x: Success(x + 1))

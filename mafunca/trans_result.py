@@ -17,7 +17,7 @@ Args = ParamSpec('Args')
 ResultMaybe: TypeAlias = Result[Maybe[T], E]
 
 
-def just(value: T) -> ResultMaybe[T, Never]:
+def success(value: T) -> ResultMaybe[T, Never]:
     return Success(Just(value))
 
 
@@ -39,7 +39,7 @@ def lift_result(result: Result[T, E]) -> ResultMaybe[T, E]:
     return Success(Just(result.value))
 
 
-def is_just(result_m: ResultMaybe[T, E]) -> TypeGuard[Success[Just[T]]]:    
+def is_success(result_m: ResultMaybe[T, E]) -> TypeGuard[Success[Just[T]]]:    
     return isinstance(result_m, Success) and isinstance(result_m.value, Just)
 
 
@@ -67,5 +67,3 @@ def from_try(fn: Callable[Args, R]) -> Callable[Args, ResultMaybe[R, Exception]]
             return Fail(err)
 
     return wraps(fn)(from_try_inner)
-
-

@@ -66,10 +66,10 @@ def ap(result: Result[T, E]) -> Callable[[Result[Callable[[T], R], E]], Result[R
         Applies value enclosed in the Result to a function also in the Result.
     """
     def app_inner(fn: Result[Callable[[T], R], E]) -> Result[R, E]:
-        if isinstance(result, Fail):
-            return result 
         if isinstance(fn, Fail):
-            return fn               
+            return fn
+        if isinstance(result, Fail):
+            return result                       
         return Success(fn.value(result.value))
 
     return app_inner
