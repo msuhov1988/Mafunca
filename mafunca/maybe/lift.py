@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from typing import TypeVar, Any
 
-from mafunca.maybe import Just, Nothing, Maybe
+from mafunca.maybe.build import Just, Nothing, Maybe
 
 
 R = TypeVar("R")

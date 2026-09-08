@@ -1,4 +1,3 @@
-from __future__ import annotations
 from dataclasses import dataclass
 import inspect
 from collections.abc import Callable
@@ -6,7 +5,6 @@ from typing import TypeVar, Generic, Any
 
 from mafunca.common.exceptions import ValidationError
 from mafunca._lazy_support import panic_on_coroutine
-from mafunca.curry import curry2, curry3, curry4
 
 
 __all__ = [
@@ -14,46 +12,22 @@ __all__ = [
     "pure",
     "delay",
     "retry",
-    "ap",
-    "lift2",
-    "lift3",
-    "lift4",
 ]
 
 
-A = TypeVar("A")
+A_co = TypeVar("A_co", covariant=True)
+A = TypeVar("A", covariant=True)
 B = TypeVar("B")
 Exc = TypeVar("Exc", bound=Exception)
 
 
-class Eff(Generic[A]):
+class Eff(Generic[A_co]):
+    __slots__ = ()
     """
         A monad for SYNCHRONOUS ONLY effects.
         Lazy: not executed until the corresponding executor is called.
-    """
-
-    def fmap(self, fn: Callable[[A], B]) -> Eff[B]:
-        """:raises MonadError: coroutine functions are not allowed"""
-        panic_on_coroutine(fn, self.__class__.__name__, 'fmap')
-        return _Bind(self, lambda a: _Pure(fn(a)))
-
-    def bind(self, fn: Callable[[A], Eff[B]]) -> Eff[B]:
-        """:raises MonadError: coroutine functions are not allowed"""
-        panic_on_coroutine(fn, self.__class__.__name__, 'bind')
-        return _Bind(self, fn)
-
-    def catch_fmap(self, exc_type: type[Exc], catcher: Callable[[Exc], A]) -> Eff[A]:
-        """:raises MonadError: coroutine functions are not allowed"""
-        panic_on_coroutine(catcher, self.__class__.__name__, 'catch_fmap')
-        return _Catch(self, exc_type, lambda exc: _Pure(catcher(exc)))
-
-    def catch_bind(self, exc_type: type[Exc], catcher: Callable[[Exc], Eff[A]]) -> Eff[A]:
-        """:raises MonadError: coroutine functions are not allowed"""
-        panic_on_coroutine(catcher, self.__class__.__name__, 'catch_bind')
-        return _Catch(self, exc_type, catcher)
-
-    def ensure(self, finalizer: Eff[None]) -> Eff[A]:
-        return _Ensure(self, finalizer)
+    """ 
+    pass   
 
 
 @dataclass(frozen=True, slots=True, repr=True)
@@ -164,46 +138,3 @@ def retry(
         retry_on_exceptions=retry_on_exceptions,
         step_name=step_name
     )
-
-
-def ap(effect: Eff[A], fn: Eff[Callable[[A], B]]) -> Eff[B]:
-    return fn.bind(lambda fn_inner: effect.fmap(lambda val: fn_inner(val)))
-
-
-A1 = TypeVar("A1")
-A2 = TypeVar("A2")
-A3 = TypeVar("A3")
-A4 = TypeVar("A4")
-
-
-def lift2(
-        fn: Callable[[A1, A2], B],
-        arg1: Eff[A1],
-        arg2: Eff[A2]
-) -> Eff[B]:
-    """:raises MonadError: coroutine function is not allowed"""
-    panic_on_coroutine(fn, Eff.__name__, 'lift2')
-    return ap(arg2, ap(arg1, _Pure(curry2(fn))))
-
-
-def lift3(
-        fn: Callable[[A1, A2, A3], B],
-        arg1: Eff[A1],
-        arg2: Eff[A2],
-        arg3: Eff[A3]
-) -> Eff[B]:
-    """:raises MonadError: coroutine function is not allowed"""
-    panic_on_coroutine(fn, Eff.__name__, 'lift3')
-    return ap(arg3, ap(arg2, ap(arg1, _Pure(curry3(fn)))))
-
-
-def lift4(
-        fn: Callable[[A1, A2, A3, A4], B],
-        arg1: Eff[A1],
-        arg2: Eff[A2],
-        arg3: Eff[A3],
-        arg4: Eff[A4],
-) -> Eff[B]:
-    """:raises MonadError: coroutine function is not allowed"""
-    panic_on_coroutine(fn, Eff.__name__, 'lift4')
-    return ap(arg4, ap(arg3, ap(arg2, ap(arg1, _Pure(curry4(fn))))))

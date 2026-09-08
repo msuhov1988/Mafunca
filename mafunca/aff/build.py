@@ -1,4 +1,3 @@
-from __future__ import annotations
 from dataclasses import dataclass
 import inspect
 from collections.abc import Callable, Awaitable
@@ -6,7 +5,6 @@ from typing import TypeVar, Generic, Any
 
 from mafunca.common.exceptions import ValidationError
 from mafunca._lazy_support import panic_on_coroutine
-from mafunca.curry import curry2, curry3, curry4
 
 
 __all__ = [
@@ -15,64 +13,23 @@ __all__ = [
     "delay",
     "delay_to_thread",
     "retry",
-    "ap",
-    "lift2",
-    "lift3",
-    "lift4",
 ]
 
+
+A_co = TypeVar("A_co", covariant=True)
 A = TypeVar("A")
 B = TypeVar("B")
 Exc = TypeVar("Exc", bound=Exception)
 E = TypeVar("E")
 
 
-class Aff(Generic[A]):
+class Aff(Generic[A_co]):
+    __slots__ = ()
     """
         A monad for ASYNCHRONOUS effects.
         Lazy: not executed until the corresponding executor is called.
     """
-
-    def fmap(self, fn: Callable[[A], B]) -> Aff[B]:
-        """
-            Only for SYNCHRONOUS functions - pure calculation
-
-            :raises MonadError: coroutine functions are not allowed
-        """
-        panic_on_coroutine(fn, self.__class__.__name__, 'fmap')
-        return _BindAsync(self, lambda a: _PureAsync(fn(a)))
-
-    def bind(self, fn: Callable[[A], Aff[B]]) -> Aff[B]:
-        """
-            The function that returns the effect must be SYNCHRONOUS.
-            Asynchrony is assumed inside the effect
-
-            :raises MonadError: coroutine functions are not allowed
-        """
-        panic_on_coroutine(fn, self.__class__.__name__, 'bind')
-        return _BindAsync(self, fn)
-
-    def catch_fmap(self, exc_type: type[Exc], catcher: Callable[[Exc], A]) -> Aff[A]:
-        """
-            Only for SYNCHRONOUS catchers - pure calculation
-
-            :raises MonadError: coroutine functions are not allowed
-        """
-        panic_on_coroutine(catcher, self.__class__.__name__, 'catch_fmap')
-        return _CatchAsync(self, exc_type, lambda exc: _PureAsync(catcher(exc)))
-
-    def catch_bind(self, exc_type: type[Exc], catcher: Callable[[Exc], Aff[A]]) -> Aff[A]:
-        """
-            The catcher that returns the effect must be SYNCHRONOUS.
-            Asynchrony is assumed inside the effect
-
-            :raises MonadError: coroutine functions are not allowed
-        """
-        panic_on_coroutine(catcher, self.__class__.__name__, 'catch_bind')
-        return _CatchAsync(self, exc_type, catcher)
-
-    def ensure(self, finalizer: Aff[None]) -> Aff[A]:
-        return _EnsureAsync(self, finalizer)
+    pass    
 
 
 @dataclass(frozen=True, slots=True, repr=True)
@@ -216,46 +173,3 @@ def retry(
         retry_on_exceptions=retry_on_exceptions,
         step_name=step_name
     )
-
-
-def ap(effect: Aff[A], fn: Aff[Callable[[A], B]]) -> Aff[B]:
-    return fn.bind(lambda fn_inner: effect.fmap(lambda val: fn_inner(val)))
-
-
-A1 = TypeVar("A1")
-A2 = TypeVar("A2")
-A3 = TypeVar("A3")
-A4 = TypeVar("A4")
-
-
-def lift2(
-        fn: Callable[[A1, A2], B],
-        arg1: Aff[A1],
-        arg2: Aff[A2]
-) -> Aff[B]:
-    """:raises MonadError: coroutine function is not allowed"""
-    panic_on_coroutine(fn, Aff.__name__, 'lift2')
-    return ap(arg2, ap(arg1, _PureAsync(curry2(fn))))
-
-
-def lift3(
-        fn: Callable[[A1, A2, A3], B],
-        arg1: Aff[A1],
-        arg2: Aff[A2],
-        arg3: Aff[A3]
-) -> Aff[B]:
-    """:raises MonadError: coroutine function is not allowed"""
-    panic_on_coroutine(fn, Aff.__name__, 'lift3')
-    return ap(arg3, ap(arg2, ap(arg1, _PureAsync(curry3(fn)))))
-
-
-def lift4(
-        fn: Callable[[A1, A2, A3, A4], B],
-        arg1: Aff[A1],
-        arg2: Aff[A2],
-        arg3: Aff[A3],
-        arg4: Aff[A4],
-) -> Aff[B]:
-    """:raises MonadError: coroutine function is not allowed"""
-    panic_on_coroutine(fn, Aff.__name__, 'lift4')
-    return ap(arg4, ap(arg3, ap(arg2, ap(arg1, _PureAsync(curry4(fn))))))

@@ -1,12 +1,12 @@
 from typing import Callable
 import unittest
 
-from mafunca.result import Success, Fail, success, fail, is_success, is_fail, from_try
-from mafunca.result_direct import fmap, fmap_error, bind, fold, get_or_else, ap
-from mafunca.result_lift import lift, lift2, lift3, lift4
+from mafunca.result.build import Success, Fail, success, fail, is_success, is_fail, from_try
+from mafunca.result.direct import fmap, fmap_error, bind, fold, get_or_else, ap
+from mafunca.result.lift import lift, lift2, lift3, lift4
 
 from mafunca.flow import flow
-import mafunca.result_flow as rf
+import mafunca.result.flow as rf
 
 from mafunca.common.exceptions import MonadError
 

@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from typing import TypeVar
 
-from mafunca.result import Success, Fail, Result
+from mafunca.result.build import Success, Fail, Result
 
 
 T = TypeVar("T")

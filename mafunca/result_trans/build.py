@@ -2,8 +2,8 @@ from collections.abc import Callable
 from functools import wraps
 from typing import TypeVar, TypeAlias, TypeGuard, ParamSpec, Never
 
-from mafunca.maybe import Just, Nothing, Maybe
-from mafunca.result import Success, Fail, Result
+from mafunca.maybe.build import Just, Nothing, Maybe
+from mafunca.result.build import Success, Fail, Result
 
 
 T = TypeVar("T")

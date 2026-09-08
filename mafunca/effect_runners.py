@@ -2,18 +2,16 @@ from dataclasses import dataclass, field
 from collections.abc import Callable, Awaitable
 from time import sleep
 import asyncio
-from typing import TypeVar, TypeAlias, ParamSpec, overload, Any, cast
+from typing import TypeVar, TypeAlias, ParamSpec, Any, cast
 
 from mafunca.common.exceptions import RetryByExceptionError, RetryByValueError, RetryBadPauseError, MonadError
-from mafunca.result import Success, Fail, Result
-from mafunca.effect_sync import Eff
-from mafunca.trans_effect_sync import EffResult
-from mafunca.effect_sync import _Pure, _Delay, _Retry  # type: ignore # noqa
-from mafunca.effect_sync import _Bind, _Catch, _Ensure  # type: ignore # noqa
-from mafunca.effect_async import Aff
-from mafunca.trans_effect_async import AffResult
-from mafunca.effect_async import _PureAsync, _DelayAsync, _DelayThreadAsync, _RetryAsync  # type: ignore # noqa
-from mafunca.effect_async import _BindAsync, _CatchAsync, _EnsureAsync  # type: ignore # noqa
+from mafunca.result.build import Success, Fail, Result
+from mafunca.eff.build import Eff
+from mafunca.eff.build import _Pure, _Delay, _Retry  # type: ignore # noqa
+from mafunca.eff.build import _Bind, _Catch, _Ensure  # type: ignore # noqa
+from mafunca.aff.build import Aff
+from mafunca.aff.build import _PureAsync, _DelayAsync, _DelayThreadAsync, _RetryAsync  # type: ignore # noqa
+from mafunca.aff.build import _BindAsync, _CatchAsync, _EnsureAsync  # type: ignore # noqa
 
 
 __all__ = ["run", "run_safe", "run_async", "run_safe_async"]
@@ -192,18 +190,13 @@ def _leave_ensure_scope(stack_of_scopes: list[_Scope]) -> _Scope:
 #  finalizer is executed in its own separate scope
 #  which allows finalizer to execute regardless of previous step's errors and discard the result upon completion
 
-@overload
-def run(effect: EffResult[A, E]) -> Result[A, E]: ...
-@overload
-def run(effect: Eff[A]) -> A: ...
 
-
-def run(effect: EffResult[A, E] | Eff[A]) -> Result[A, E] | A:
+def run(effect: Eff[A]) -> A:
     """
         Simple synchronous executor - just runs a chain.
         :raises MonadError: violations of the contract
     """
-    scope = _Scope(effect.inner if isinstance(effect, EffResult) else effect)
+    scope = _Scope(effect)
     stack_of_scopes = [scope]
     while True:
         if scope.error is None:
@@ -264,13 +257,7 @@ def run(effect: EffResult[A, E] | Eff[A]) -> Result[A, E] | A:
                     scope = _enter_ensure_scope(finalizer=frame.finalizer, stack_of_scopes=stack_of_scopes)
 
 
-@overload
-def run_safe(effect: EffResult[A, E]) -> Result[Result[A, E], Exception]: ...
-@overload
-def run_safe(effect: Eff[A]) -> Result[A, Exception]: ...
-
-
-def run_safe(effect: EffResult[A, E] | Eff[A]) -> Result[Result[A, E] | A, Exception]:
+def run_safe(effect: Eff[A]) -> Result[A, Exception]:
     """
         Synchronous executor - runs a chain, catching possible errors - heirs of 'Exception'
         :raises MonadError: violations of the contract
@@ -286,18 +273,12 @@ def run_safe(effect: EffResult[A, E] | Eff[A]) -> Result[Result[A, E] | A, Excep
 #  which allows finalizer to execute regardless of previous step's errors and discard the result upon completion
 
 
-@overload
-async def run_async(effect: AffResult[A, E]) -> Result[A, E]: ...
-@overload
-async def run_async(effect: Aff[A]) -> A: ...
-
-
-async def run_async(effect: AffResult[A, E] | Aff[A]) -> Result[A, E] | A:
+async def run_async(effect: Aff[A]) -> A:
     """
         Simple asynchronous executor - just runs a chain.
         :raises MonadError: violations of the contract
     """
-    scope = _Scope(effect.inner if isinstance(effect, AffResult) else effect)
+    scope = _Scope(effect)
     stack_of_scopes = [scope]
     while True:
         if scope.error is None:
@@ -362,13 +343,7 @@ async def run_async(effect: AffResult[A, E] | Aff[A]) -> Result[A, E] | A:
                     scope = _enter_ensure_scope(finalizer=frame.finalizer, stack_of_scopes=stack_of_scopes)
 
 
-@overload
-async def run_safe_async(effect: AffResult[A, E]) -> Result[Result[A, E], Exception]: ...
-@overload
-async def run_safe_async(effect: Aff[A]) -> Result[A, Exception]: ...
-
-
-async def run_safe_async(effect: AffResult[A, E] | Aff[A]) -> Result[Result[A, E] | A, Exception]:
+async def run_safe_async(effect: Aff[A]) -> Result[A, Exception]:
     """
         Asynchronous executor - runs a chain, catching possible errors - heirs of 'Exception'
         :raises MonadError: violations of the contract

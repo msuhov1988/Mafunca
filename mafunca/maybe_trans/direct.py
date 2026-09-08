@@ -1,9 +1,9 @@
 from collections.abc import Callable
 from typing import TypeVar, cast
 
-from mafunca.trans_maybe import MaybeResult
-from mafunca.maybe import Just, Nothing, Maybe
-from mafunca.result import Success, Fail, Result
+from mafunca.maybe_trans.build import MaybeResult
+from mafunca.maybe.build import Just, Nothing, Maybe
+from mafunca.result.build import Success, Fail, Result
 
 
 T = TypeVar("T")

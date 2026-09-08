@@ -1,13 +1,13 @@
 import unittest
 
-from mafunca.result import Success, Fail, success as result_success, fail as result_fail
-from mafunca.maybe import Just, just as maybe_just, nothing as maybe_nothing
-from mafunca.result_direct import fmap as result_map
-from mafunca.trans_maybe import just, nothing, fail, lift_maybe, lift_result
-from mafunca.trans_maybe import is_just, is_nothing, is_fail, from_null, from_try
-from mafunca.trans_maybe_direct import fmap, fmap_error, fmap_maybe, fmap_result, bind, fold, get_or_else, ap
-from mafunca.trans_maybe_lift import lift2, lift3, lift4, lift
-import mafunca.trans_maybe_flow as rf
+from mafunca.result.build import Success, Fail, success as result_success, fail as result_fail
+from mafunca.maybe.build import Just, just as maybe_just, nothing as maybe_nothing
+from mafunca.result.direct import fmap as result_map
+from mafunca.maybe_trans.build import just, nothing, fail, lift_maybe, lift_result
+from mafunca.maybe_trans.build import is_just, is_nothing, is_fail, from_null, from_try
+from mafunca.maybe_trans.direct import fmap, fmap_error, fmap_maybe, fmap_result, bind, fold, get_or_else, ap
+from mafunca.maybe_trans.lift import lift2, lift3, lift4, lift
+import mafunca.maybe_trans.flow as rf
 from mafunca.flow import flow
 
 from mafunca.common.exceptions import MonadError

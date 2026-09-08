@@ -1,11 +1,11 @@
 import unittest
 
-from mafunca.maybe import Just, Nothing, just, nothing, is_just, is_nothing, from_null
-from mafunca.maybe_direct import fmap, bind, fold, get_or_else, ap
-from mafunca.maybe_lift import lift, lift2, lift3, lift4
+from mafunca.maybe.build import Just, Nothing, just, nothing, is_just, is_nothing, from_null
+from mafunca.maybe.direct import fmap, bind, fold, get_or_else, ap
+from mafunca.maybe.lift import lift, lift2, lift3, lift4
 
 from mafunca.flow import flow
-import mafunca.maybe_flow as mf
+import mafunca.maybe.flow as mf
 
 
 class TestMaybe(unittest.TestCase):
