@@ -820,7 +820,7 @@ from mafunca.flow import flow
 effect = flow(
   delay(open_resource),
   bind(lambda resource: flow(
-      delay(hanble_resource),
+      delay(lambda: handle_resource(resource)),
       catch_fmap(SomeDomainError, catcher),
       ensure(delay(close_resource))
   )),
