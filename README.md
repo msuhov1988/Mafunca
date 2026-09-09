@@ -1,7 +1,8 @@
 [![PyPI version](https://img.shields.io/pypi/v/mafunca.svg)](https://pypi.org/project/mafunca/)
 [![Python versions](https://img.shields.io/pypi/pyversions/mafunca.svg)](https://pypi.org/project/mafunca/)
 [![License](https://img.shields.io/pypi/l/mafunca.svg)](https://pypi.org/project/mafunca/)
-## For version <=0.5.3, see old_docs.md
+## For version <=0.5.3, see old_docs_0_5_3.md
+## For version <=0.8.3, see old_docs_0_8_3.md
 
 ### Mafunca is a small FP library with a practical focus.
 ### Rather than trying to implement every functional abstraction, it concentrates on a few useful ideas: 
@@ -16,11 +17,13 @@
 
 ### [Error handling and missing values](#error-handling-and-missing-values)
 - [Description](#description)
-- [Result methods](#result-methods)
-- [Maybe methods](#maybe-methods)
-- [ResultT methods](#resultt-methods)
-- [MaybeT methods](#maybet-methods)
-- [Examples](#examples)
+- [Modules](#modules)
+- [Constructors](#constructors)
+- [Chaining functions](#chaining-functions)
+- [Multiple arguments](#multiple-arguments)
+- [Table of functions](#table-of-functions)
+- [Remarks](#remarks)
+- [Example](#example)
 
 ### [Currying](#currying)
 - [Description of currying](#description-of-currying)
@@ -28,9 +31,9 @@
 
 ### [Effects](#effects)
 - [Description of effects](#description-of-effects)
-- [Synchronous effects](#synchronous-effects)
-- [Asynchronous effects](#asynchronous-effects)
-- [Transformers](#transformers)
+- [Modules of effects](#modules-of-effects)
+- [Constructors of effects](#constructors-of-effects)
+- [Functions table](#functions-table)
 - [General remarks](#general-remarks)
 - [Effect examples](#effect-examples)
 
@@ -48,289 +51,402 @@ python -m pip install mafunca
 
 ## Error handling and missing values
 ### Description
-Of course, we will talk about monads.
-To begin with, a small example:
+What we want to get: 
+- Transfer errors and missing values to the types
+- To ensure that the next step is not executed if the current one ends in an error / absence of a value. 
+- Maintain the linearity of the execution flow despite all this
 
-Let's say you call three functions, passing the results sequentially:
+Let’s define the basic containers and union types: 
+- Success or failure
 ```python
-result1 = f1(val)
-result2 = f2(result1)
-final = f3(result2)
-```
-But what if each of these functions can throw an exception or return **None**, or both?  
-How can we combine them without additional checks, external **try except** blocks, or repeated exception throws? 
+from dataclasses import dataclass
+from typing import TypeVar, Generic, TypeAlias
 
-**Case of errors only**  
-We can extend the standard try except mechanism in each of the functions as follows:
+T= TypeVar("T", covariant=True)
+E = TypeVar("E", covariant=True)
 
+@dataclass(frozen=True, slots=True, repr=True)
+class Success(Generic[T]):
+    value: T
+
+
+@dataclass(frozen=True, slots=True, repr=True)
+class Fail(Generic[E]):
+    error: E
+
+Result: TypeAlias = Success[T] | Fail[E]
+``` 
+- There is a value or there is no value
 ```python
-from mafunca.result_old import Ok, Err, Result
+from dataclasses import dataclass
+from typing import TypeVar, Generic, TypeAlias
+
+T = TypeVar("T", covariant=True)
+
+@dataclass(frozen=True, slots=True, repr=True)
+class Just(Generic[T]):
+    value: T
 
 
-# Result[T, E] is just a TypeAlias for Ok[T] | Err[E]
-def f1(...) -> Result[T, Exception]:
-    try:
-        ...
-        return Ok(result_value)
-    except Exception as err:
-        return Err(err)
-```
-Or
+@dataclass(frozen=True, slots=True, repr=True)
+class Nothing:
+    pass
 
-```python
-from mafunca.result_old import from_try
-
-
-@from_try
-def f1(...):
-    # the function body is unchanged
-    ...
-```
-
-**Case of missing values**
-```python
-from mafunca.maybe import Just, Nothing, Maybe, from_null
-
-# Maybe[T] is just a TypeAlias for Just[T] | Nothing
-def f1(...) -> Maybe[T]:
-    ... 
-    # Replace explicit None returns
-    return None       # it was
-    return Nothing()  # become
-    ...
-    # Replace normal returns
-    return result_value        # it was
-    return Just(result_value)  # become
-    ...
-    # Or two in one
-    return from_null(is_nullable=lambda v: v is None)(operation_that_returns(...))
-```
-
-**Case of both errors and missing values**  
-You need to use a transformer that includes all three states(normal result, absense, error):
-```python
-from mafunca.result_transformer import ResultT
-from mafunca.result_transformer import just_of, nothing_of, error_of
-
-#  ResultT[T, E] - container for a composite value of the form Result[Maybe[T], E]
-#  Note that ResultT is not a TypeAlias, but a class
-def f1(...) -> ResultT[T, Exception]:
-    try:
-        ... 
-        # Replace explicit None returns
-        return None          # it was
-        return nothing_of()  # become
-        ...
-        # Replace normal returns
-        return result_value           # it was
-        return just_of(result_value)  # become
-    except Exception as err:
-        return error_of(err)
-```
-Or
-```python
-from mafunca.result_transformer import from_try
-
-@from_try(is_nullable=lambda v: v is None)
-def f1(...):
-    # the function body is unchanged
-    ...    
-```
-**Now we can write the following chain**:
-```python
-# no additional checks
-# no external try except blocks
-# no repeated exception throws
-final_in_container = f1(val).bind(f2).bind(f3)
-# all errors and missing values will be processed linearly using binding methods
-# Note that final_in_container is a value inside a monad, so it still needs to be extracted
-# How to do it? - see the method tables below
-```
-
-### Result methods:
-
-```python
-import mafunca.result_old  # the corresponding module
-```
-```python
-Result: TypeAlias = Ok[T] | Err[E]
-```
-  | Method(`self` is omitted for brevity)                                    | Ok returns                   | Err returns            | Description                                                         |          
-  |--------------------------------------------------------------------------|------------------------------|------------------------|---------------------------------------------------------------------|
-  | is_ok                                                                    | `True`                       | `False`                | Property - boolean flag                                             |
-  | is_error                                                                 | `False`                      | `True`                 | Property - boolean flag                                             |
-  | <nobr>map(fn: Callable[[T], R]</nobr>                                    | `Ok[R]`                      | `self`                 | applies the function, wraps the result                              |
-  | <nobr>bind(fn: Callable[[T], Result[R, E]])</nobr>                       | <nobr> `Result[R, E]`</nobr> | `self`                 | applies the function and does not wraps the result                  |
-  | <nobr>map_error(fn: Callable[[E], NewE])</nobr>                          | `self`                       | `Err[NewE]`            | mapping the error on a new one                                      |
-  | get_or_else(alter: T)                                                    | extracts                     | returns an alternative | extracts the internal value or returns an alternative               |
-  | unfold(<br/>*,<br/>ok: Callable[[T], R],<br/>err: Callable[[E], R]<br/>) | `R`                          | `R`                    | extracts the internal value using the corresponding branch function |
-### Result additional module functions:
-  | Function                                                                                     | returns                                            | Description                                                                             |       
-  |----------------------------------------------------------------------------------------------|----------------------------------------------------|-----------------------------------------------------------------------------------------|
-  | ok_of(value: T)                                                                              | `Ok[T]`                                            | Wraps the value in a container                                                          |
-  | err_of(error: E)                                                                             | `Err[E]`                                           | Wraps the error in a container                                                          |
-  | <nobr>from_try(fn: Callable[..., R])</nobr>                                                  | <nobr>`Callable[..., Result[R, Exception]]`</nobr> | Decorator. Wraps `fn`, catches possible errors - heirs of `Exception`.                  | 
-  | <nobr>ap(fn: Result[Callable[[T], R], E], val: Result[T, E])</nobr>                          | <nobr>`Result[R, E]`</nobr>                        | Applies value enclosed in the Result to a function also in the Result                   |
-  | lift2(<br/>fn: Callable[[A1, A2], R],<br/>arg1: Result[A1, E],<br/>arg2: Result[A2, E]<br/>) | <nobr>`Result[R, E]`</nobr>                        | Applies wrapped values to a two-argument function                                       |
-  | lift3, lift4                                                                                 | <nobr>`Result[R, E]`</nobr>                        | Similarly to lift2, but for functions with 3 and 4 positional arguments, respectively   |
-  | lift(fn: Callable[..., R], *args: Result[Any, E])                                            | <nobr>`Result[R, E]`</nobr>                        | Similarly to lift2, but for a function with an arbitrary number of positional arguments |
-### Maybe methods:
-```python
-import mafunca.maybe  # the corresponding module
-```
-```python
 Maybe: TypeAlias = Just[T] | Nothing
 ```
-  | Method(`self` is omitted for brevity)                                         | Just returns             | Nothing returns        | Description                                                         |          
-  |-------------------------------------------------------------------------------|--------------------------|------------------------|---------------------------------------------------------------------|
-  | is_just                                                                       | `True`                   | `False`                | Property - boolean flag                                             |
-  | is_nothing                                                                    | `False`                  | `True`                 | Property - boolean flag                                             |
-  | <nobr>map(fn: Callable[[T], R]</nobr>                                         | `Just[R]`                | `self`                 | applies the function, wraps the result                              |
-  | <nobr>bind(fn: Callable[[T], Maybe[R]])</nobr>                                | <nobr> `Maybe[R]`</nobr> | `self`                 | applies the function and does not wraps the result                  |  
-  | get_or_else(alter: T)                                                         | extracts                 | returns an alternative | extracts the internal value or returns an alternative               |
-  | unfold(<br/>*,<br/>just: Callable[[T], R],<br/>nothing: Callable[[], R]<br/>) | `R`                      | `R`                    | extracts the internal value using the corresponding branch function |
-### Maybe additional module functions:
-  | Function                                                                                 | returns                                | Description                                                                             |       
-  |------------------------------------------------------------------------------------------|----------------------------------------|-----------------------------------------------------------------------------------------|
-  | just_of(value: T)                                                                        | `Just[T]`                              | Wraps the value in a container                                                          |
-  | nothing_of()                                                                             | `Nothing`                              | Creates Nothing entity                                                                  |
-  | <nobr>from_null(is_nullable: Callable[[R], bool] = lambda v: v is None)(value: R)</nobr> | <nobr>`Callable[[R], Maybe[R]]`</nobr> | Returns Nothing or wraps the value in Just based on the `is_nullable` result            | 
-  | <nobr>ap(fn: Maybe[Callable[[T], R]], val: Maybe[T])</nobr>                              | <nobr>`Maybe[R]`</nobr>                | Applies value enclosed in the Maybe to a function also in the Maybe                     |
-  | lift2(<br/>fn: Callable[[A1, A2], R],<br/>arg1: Maybe[A1],<br/>arg2: Maybe[A2]<br/>)     | <nobr>`Maybe[R]`</nobr>                | Applies wrapped values to a two-argument function                                       |
-  | lift3, lift4                                                                             | <nobr>`Maybe[R]`</nobr>                | Similarly to lift2, but for functions with 3 and 4 positional arguments, respectively   |
-  | lift(fn: Callable[..., R], *args: Maybe[Any])                                            | <nobr>`Maybe[R]`</nobr>                | Similarly to lift2, but for a function with an arbitrary number of positional arguments |
-### ResultT methods:
-```python
-import mafunca.result_transformer  # the corresponding module
-```
-```python
-class ResultT(Generic[T, E]):    
-    inner: Result[Maybe[T], E]
-```
-  | Method(`self` is omitted for brevity)                                           | returns                         | Description                                                         |          
-  |---------------------------------------------------------------------------------|---------------------------------|---------------------------------------------------------------------|
-  | is_just                                                                         | `bool`                          | Property - boolean flag                                             |
-  | is_nothing                                                                      | `bool`                          | Property - boolean flag                                             |
-  | is_error                                                                        | `bool`                          | Property - boolean flag                                             |
-  | <nobr>map(fn: Callable[[T], R])</nobr>                                          | <nobr>`ResultT[R, E]`</nobr>    | applies the function, wraps the result                              |
-  | <nobr>map_maybe(fn: Callable[[T], Maybe[R]])</nobr>                             | <nobr>`ResultT[R, E]`</nobr>    | applies the function, wraps the result                              |
-  | <nobr>map_result(fn: Callable[[T], Result[R, E]])</nobr>                        | <nobr>`ResultT[R, E]`</nobr>    | applies the function, wraps the result                              |
-  | <nobr>bind(fn: Callable[[T], ResultT[R, E]])</nobr>                             | <nobr>`ResultT[R, E]`</nobr>    | applies the function and does not wraps the result                  |
-  | <nobr>map_error(fn: Callable[[E], NewE])</nobr>                                 | <nobr>`ResultT[T, NewE]`</nobr> | mapping the error on a new one                                      |
-  | get_or_else(alter: T)                                                           | extracts or alternative         | extracts the internal value or returns an alternative               |
-  | unfold(<br/>*,<br/>ok: Callable[[Maybe[T]], R],<br/>err: Callable[[E], R]<br/>) | `R`                             | extracts the internal value using the corresponding branch function |
-### ResultT additional module functions:
-  | Function                                                                                            | returns                                             | Description                                                                                                                             |       
-  |-----------------------------------------------------------------------------------------------------|-----------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------|
-  | just_of(value: T)                                                                                   | `ResultT[T, Never]`                                 | Wraps the value in a container                                                                                                          |
-  | nothing_of()                                                                                        | <nobr>`ResultT[Never, Never]`</nobr>                | Wraps the Nothing                                                                                                                       |
-  | error_of(error: E)                                                                                  | `ResultT[Never, E]`                                 | Wraps the error in a container                                                                                                          |
-  | maybe_of(maybe: Maybe[T])                                                                           | `ResultT[T, Never]`                                 | Wraps the Maybe value in a container                                                                                                    |
-  | result_of(result: Result[T, E])                                                                     | `ResultT[T, E]`                                     | Wraps the Result value in a container                                                                                                   |
-  | <nobr>from_null(is_nullable: Callable[[R], bool] = lambda v: v is None)(value: R)</nobr>            | <nobr>`Callable[[R], ResultT[R, Never]]`</nobr>     | Wraps the value based on `is_nullable` predicate                                                                                        | 
-  | <nobr>from_try(is_nullable: Callable[[R], bool] = lambda v: v is None)(fn: Callable[..., R])</nobr> | <nobr>`Callable[..., ResultT[R, Exception]]`</nobr> | Decorator. Wraps `fn`, catches possible errors - heirs of `Exception` and wraps the successful result based on `is_nullable` predicate. |
-  | <nobr>ap(fn: ResultT[Callable[[T], R], E], val: ResultT[T, E])</nobr>                               | <nobr>`ResultT[R, E]`</nobr>                        | Applies value enclosed in the ResultT to a function also in the ResultT                                                                 |
-  | lift2(<br/>fn: Callable[[A1, A2], R],<br/>arg1: ResultT[A1, E],<br/>arg2: ResultT[A2, E]<br/>)      | <nobr>`ResultT[R, E]`</nobr>                        | Applies wrapped values to a two-argument function                                                                                       |
-  | lift3, lift4                                                                                        | <nobr>`ResultT[R, E]`</nobr>                        | Similarly to lift2, but for functions with 3 and 4 positional arguments, respectively                                                   |
-  | lift(fn: Callable[..., R], *args: ResultT[Any, E])                                                  | <nobr>`ResultT[R, E]`</nobr>                        | Similarly to lift2, but for a function with an arbitrary number of positional arguments                                                 |
-### MaybeT methods:
-```python
-import mafunca.maybe_transformer  # the corresponding module
-```
-```python
-class MaybeT(Generic[T, E]):
-    inner: Maybe[Result[T, E]]
-```
-  | Method(`self` is omitted for brevity)                                                    | returns                        | Description                                                         |          
-  |------------------------------------------------------------------------------------------|--------------------------------|---------------------------------------------------------------------|
-  | is_ok                                                                                    | `bool`                         | Property - boolean flag                                             |
-  | is_error                                                                                 | `bool`                         | Property - boolean flag                                             |
-  | is_nothing                                                                               | `bool`                         | Property - boolean flag                                             |
-  | <nobr>map(fn: Callable[[T], R])</nobr>                                                   | <nobr>`MaybeT[R, E]`</nobr>    | applies the function, wraps the result                              |
-  | <nobr>map_maybe(fn: Callable[[T], Maybe[R]])</nobr>                                      | <nobr>`MaybeT[R, E]`</nobr>    | applies the function, wraps the result                              |
-  | <nobr>map_result(fn: Callable[[T], Result[R, E]])</nobr>                                 | <nobr>`MaybeT[R, E]`</nobr>    | applies the function, wraps the result                              |
-  | <nobr>bind(fn: Callable[[T], MaybeT[R, E]])</nobr>                                       | <nobr>`MaybeT[R, E]`</nobr>    | applies the function and does not wraps the result                  |
-  | <nobr>map_error(fn: Callable[[E], NewE])</nobr>                                          | <nobr>`MaybeT[T, NewE]`</nobr> | mapping the error on a new one                                      |
-  | get_or_else(alter: T)                                                                    | extracts or alternative        | extracts the internal value or returns an alternative               |
-  | unfold(<br/>*,<br/>just: Callable[[Result[T, E]], R],<br/>nothing: Callable[[], R]<br/>) | `R`                            | extracts the internal value using the corresponding branch function |
-### MaybeT additional module functions:
-  | Function                                                                                            | returns                                            | Description                                                                                                                             |       
-  |-----------------------------------------------------------------------------------------------------|----------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------|
-  | ok_of(value: T)                                                                                     | `MaybeT[T, Never]`                                 | Wraps the value in a container                                                                                                          |
-  | error_of(error: E)                                                                                  | <nobr>`MaybeT[Never, E]`</nobr>                    | Wraps the Nothing                                                                                                                       |
-  | nothing_of()                                                                                        | <nobr>`MaybeT[Never, Never]`</nobr>                | Wraps the error in a container                                                                                                          |
-  | maybe_of(maybe: Maybe[T])                                                                           | `MaybeT[T, Never]`                                 | Wraps the Maybe value in a container                                                                                                    |
-  | result_of(result: Result[T, E])                                                                     | `MaybeT[T, E]`                                     | Wraps the Result value in a container                                                                                                   |
-  | <nobr>from_null(is_nullable: Callable[[R], bool] = lambda v: v is None)(value: R)</nobr>            | <nobr>`Callable[[R], MaybeT[R, Never]]`</nobr>     | Wraps the value based on `is_nullable` predicate                                                                                        | 
-  | <nobr>from_try(is_nullable: Callable[[R], bool] = lambda v: v is None)(fn: Callable[..., R])</nobr> | <nobr>`Callable[..., MaybeT[R, Exception]]`</nobr> | Decorator. Wraps `fn`, catches possible errors - heirs of `Exception` and wraps the successful result based on `is_nullable` predicate. |
-  | <nobr>ap(fn: MaybeT[Callable[[T], R], E], val: MaybeT[T, E])</nobr>                                 | <nobr>`MaybeT[R, E]`</nobr>                        | Applies value enclosed in the MaybeT to a function also in the MaybeT                                                                   |
-  | lift2(<br/>fn: Callable[[A1, A2], R],<br/>arg1: MaybeT[A1, E],<br/>arg2: MaybeT[A2, E]<br/>)        | <nobr>`MaybeT[R, E]`</nobr>                        | Applies wrapped values to a two-argument function                                                                                       |
-  | lift3, lift4                                                                                        | <nobr>`MaybeT[R, E]`</nobr>                        | Similarly to lift2, but for functions with 3 and 4 positional arguments, respectively                                                   |
-  | lift(fn: Callable[..., R], *args: MaybeT[Any, E])                                                   | <nobr>`MaybeT[R, E]`</nobr>                        | Similarly to lift2, but for a function with an arbitrary number of positional arguments                                                 |
-### Examples
-#### An applicative example:
-How to chain functions was shown in general terms at the beginning of the section.  
-But what about functions with multiple arguments?
-```python
-def summa(a: int, b: int, c: int) -> int:
-    return a + b + c
-```
-I want to make this function able to apply wrapped values 
-and still terminate in a "short-circuit" fashion if one of the arguments is "bad".  
-Let's rewrite it in the 'curried' form:
-```python
-def summa(a: int):
-    def summa_second(b: int):
-        def summa_third(c: int):
-            return a + b + c
-        return summa_third  
-    return summa_second   
-```
-To avoid doing this manually, the library provides a special module:
-```python
-from mafunca.curry import curry3
+Thus, we obtain the following closed union types:
+- `Result[T, E]`
+- `Maybe[T]` 
 
-@curry3
-def summa(a: int, b: int, c: int) -> int:
-    return a + b + c
+If all three states are needed at once, here transformers:
+- `ResultMaybe: TypeAlias = Result[Maybe[T], E]`
+- `MaybeResult: TypeAlias = Maybe[Result[T, E]]`
+- сhoose the form that suits you best
+
+Thus, we have the types.  
+All that remains is to define special functions for working with them 
+so that all the requirements from the list of wishes are met.  
+More on this below.
+
+Why union types, and not, for example, classes?
+- type narrowing based on conditions and branching works well
+- pattern matching becomes natural
+- the analyzers will check that all states have been processed
+
+
+### Modules
+
+For each of the types listed in the previous point, several modules have been implemented:
+- basic functions and constructors
+```python
+import mafunca.result
+import mafunca.maybe
+import mafunca.result_trans
+import mafunca.maybe_trans
+```
+- chaining functions in a direct form
+```python
+import mafunca.result.direct
+import mafunca.maybe.direct
+import mafunca.result_trans.direct
+import mafunca.maybe_trans.direct
+```
+- chaining functions in a flow‑based form
+```python
+import mafunca.result.flow
+import mafunca.maybe.flow
+import mafunca.result_trans.flow
+import mafunca.maybe_trans.flow
+```
+- for working with functions of multiple arguments
+```python
+import mafunca.result.lift
+import mafunca.maybe.lift
+import mafunca.result_trans.lift
+import mafunca.maybe_trans.lift
 ```
 
-Now, by wrapping the function in the **Ok** container, I can use the **ap** function:
+### Constructors:
+```python
+from mafunca.result import Result, success, fail, is_success, is_fail, from_try
+
+r1 = success(1)  # Result[int, Never]
+r2 = fail(0)     # Result[Never, int]
+
+is_success(r1)   # True, the type narrows
+is_fail(r2)      # True, the type narrows
+
+def divide_safe(a: int, b: int) -> Result[float, ZeroDivisionError]:
+    try:
+        return success(a / b)
+    except ZeroDivisionError as err:
+        return fail(err)
+
+@from_try
+def divide_unsafe(a: int, b: int) -> float:
+    return a / b
+
+r3 = divide_safe(10, 2)
+print(r3)  # Success(value=5.0)
+r4 = divide_safe(10, 0)
+print(r4)  # Fail(error=ZeroDivisionError('division by zero'))
+
+r5 = divide_unsafe(10, 2)
+print(r5)  # Success(value=5.0)
+r6 = divide_unsafe(10, 0)
+print(r6)  # Fail(error=ZeroDivisionError('division by zero'))
+```
 
 ```python
-from mafunca.curry import curry3
-from mafunca.result_old import ok_of, err_of, ap
+from mafunca.maybe import Maybe, just, nothing, is_just, is_nothing, from_null
+
+r1 = just(1)    # Maybe[int]
+r2 = nothing()  # Maybe[Never]
+
+is_just(r1)     # True, the type narrows
+is_nothing(r2)  # True, the type narrows
 
 
-@curry3
-def summa(a: int, b: int, c: int) -> int:
-    return a + b + c
+r3 = from_null(1)
+print(r3)  # Just(value=1)
 
+r4 = from_null(None)
+print(r4)  # Nothing()
 
-# NOTE: after each 'ap', a partially applied function is added to the container
-ap(ap(ap(ok_of(summa), ok_of(1)), ok_of(2)), ok_of(3))  # Ok(6)
-
-ap(ap(ap(ok_of(summa), err_of("Error")), ok_of(2)), ok_of(3))  # Err("Error")
+r5 = from_null([], lambda lst: len(lst) == 0)
+print(r5)  # Nothing()
 ```
-There is a special function to avoid writing such chains manually:
 
 ```python
-from mafunca.result_old import ok_of, lift3
+import mafunca.result as result
+import mafunca.maybe as maybe
 
+from mafunca.result_trans import ResultMaybe, success, fail, nothing
+from mafunca.result_trans import is_success, is_fail, is_nothing
+from mafunca.result_trans import lift_maybe, lift_result
+from mafunca.result_trans import from_try, from_null
 
-def summa(a: int, b: int, c: int) -> int:
-    return a + b + c
+r1 = success(1)  # ResultMaybe[int, Never]
+r2 = fail(0)     # ResultMaybe[Never, int]
+r3 = nothing()   # ResultMaybe[Never, Never]
 
+is_success(r1)  # True, the type narrows
+is_fail(r2)     # True, the type narrows
+is_nothing(r3)  # True, the type narrows
 
-lift3(summa, ok_of(1), ok_of(2), ok_of(3))  # Ok(6)
+r4 = lift_maybe(maybe.just(1))    # ResultMaybe[int, Never]
+r5 = lift_maybe(maybe.nothing())  # ResultMaybe[Never, Never]
+
+r6 = lift_result(result.success(1))  # ResultMaybe[int, Never]
+r7 = lift_result(result.fail(0))     # ResultMaybe[Never, int]
+
+def divide_triple(a: int, b: int) -> ResultMaybe[float, ZeroDivisionError]:
+    try:
+        return nothing() if a < 0 else success(a / b)
+    except ZeroDivisionError as err:
+        return fail(err)
+
+@from_try
+def divide_unsafe(a: int, b: int) -> float:
+    return a / b
+
+print(divide_triple(10, 5))   # Success(value=Just(value=2.0))
+print(divide_triple(-10, 2))  # Success(value=Nothing())
+print(divide_triple(10, 0))   # Fail(error=ZeroDivisionError('division by zero'))
+
+print(from_null(1))                                    # Success(value=Just(value=1))  
+print(from_null(None))                                 # Success(value=Nothing())
+print(from_null([], lambda lst: len(lst) == 0))        # Success(value=Nothing())
 ```
+
+```python
+import mafunca.result as result
+import mafunca.maybe as maybe
+
+from mafunca.maybe_trans import MaybeResult, just, fail, nothing
+from mafunca.maybe_trans import is_just, is_fail, is_nothing
+from mafunca.maybe_trans import lift_maybe, lift_result
+from mafunca.maybe_trans import from_try, from_null
+
+# Similarly to the ResultMaybe transformer
+# The only difference is in the resulting type.
+```
+Recommendations:
+- Do not directly use the `Success, Fail, Just, Nothing` classes to create values.  
+  Use the corresponding constructor functions.  
+  Otherwise, type checkers may complain about generics for which types are not defined.
+- Instead of transformers, it is preferable to use a simple `Result`,  
+  simulating the 'nothing' with some kind of special error
+
+### Chaining functions
+When listing the functions, I will indicate in parentheses the containers for which there is an implementation.  
+But I’ll provide examples only for one of them.  
+Because their mechanics are similar; the only difference is in the types of arguments.
+
+- `fmap (all)` - applies the function and wraps the result. As a rule, the applied function returns a non‑monadic value
+```python
+from mafunca.result import success, fail
+from mafunca.result.direct import fmap as map_direct
+from mafunca.result.flow import fmap as map_flow
+
+from mafunca.flow import flow
+
+r1 = map_direct(success(0), lambda v: v + 1)               # Success(value=1)
+r2 = flow(success(0), map_flow(lambda v: v + 1))           # Success(value=1)
+r3 = flow(success(0), map_flow(lambda v: success(v + 1)))  # Success(value=Success(value=1)), always wraps!
+r4 = flow(fail(0), map_flow(lambda v: v + 1))              # Fail(error=0)
+```
+- `fmap_error (Result, ResultMaybe, MaybeResult)` - error transformation
+```python
+from mafunca.result import success, fail
+from mafunca.result.direct import fmap_error as emap_direct
+from mafunca.result.flow import fmap_error as emap_flow
+
+from mafunca.flow import flow
+
+r1 = emap_direct(fail(1), lambda v: f'error_code: {v}')         # Fail(error='error_code: 1')
+r2 = flow(fail(1), emap_flow(lambda v: f'error_code: {v}'))     # Fail(error='error_code: 1')
+r3 = flow(success(1), emap_flow(lambda v: f'error_code: {v}'))  # Success(value=1)
+```
+- `bind (all)` - the function being applied must return a monad of the same type
+```python
+from mafunca.result import success, fail
+from mafunca.result.direct import bind as bind_direct
+from mafunca.result.flow import bind as bind_flow
+
+from mafunca.flow import flow
+
+r1 = bind_direct(success(1), lambda v: success(v + 1))   # Success(value=2)
+r2 = flow(success(1), bind_flow(lambda v: fail(0)))      # Fail(error=0)
+r3 = flow(fail(0), bind_flow(lambda v: success(v + 1)))  # Fail(error=0)
+```
+- `fold (all)` - extraction based on the passed functions
+```python
+from mafunca.result import success, fail
+from mafunca.result.direct import fold as fold_direct
+from mafunca.result.flow import fold as fold_flow
+
+from mafunca.flow import flow
+
+r1 = fold_direct(success(1), on_success=lambda v: v + 1, on_fail=lambda _: 0)  # 2
+r2 = flow(
+    fail(1),
+    fold_flow(on_success=lambda v: v + 1, on_fail=lambda e: e - 1)
+)  # 0
+```
+- `get_or_else (all)` - extraction or default return
+```python
+from mafunca.result import success, fail
+from mafunca.result.direct import get_or_else as get_direct
+from mafunca.result.flow import get_or_else as get_flow
+
+from mafunca.flow import flow
+
+r1 = get_direct(success(1), 10)   # 1
+r2 = flow(fail(1), get_flow(10))  # 10
+```
+- `ap (all)` - working with functions of multiple arguments that allow partial application
+```python
+from mafunca.result import success, fail
+from mafunca.result.direct import ap as ap_direct
+from mafunca.result.flow import ap as ap_flow
+
+from mafunca.flow import flow
+
+def collect(a: int):
+    def collect_1(b: int):
+        def collect_2(c: int):
+            return [a, b, c]
+        return collect_2
+    return collect_1
+
+partial1 = ap_direct(success(1), success(collect))
+partial2 = ap_direct(success(2), partial1)
+r1 = ap_direct(success(3), partial2)  # Success(value=[1, 2, 3])
+
+r2 = flow(
+    success(collect), 
+    ap_flow(success(1)), 
+    ap_flow(success(2)), 
+    ap_flow(fail(3))
+)  # Fail(error=3)
+```
+
+Transformers have two additional functions:
+- `fmap_maybe`
+- `fmap_result`  
+As you might guess, they are similar to `fmap`, but applied function must return `Maybe` and `Result`, respectively.
+
+### Multiple arguments
+More convenient analogues of `ap` for working with functions that have multiple positional arguments.
+```python
+from mafunca.result import success, fail
+from mafunca.result.lift import lift2, lift3, lift4, lift
+
+
+def collect2(a: int, b: int):    
+    return [a, b]
+
+def collect3(a: int, b: int, c: int):    
+    return [a, b, c]
+
+def collect4(a: int, b: int, c: int, d: int):    
+    return [a, b, c, d]
+
+def collect_n(*args: int):    
+    return [*args]
+
+r2 = lift2(collect2, success(1), success(2))                       # Success(value=[1, 2])
+r3 = lift3(collect3, success(1), success(2), fail(0))              # Fail(error=0)
+r4 = lift4(collect4, fail(1), success(2), success(3), success(4))  # Fail(error=1)
+
+kit = [success(i) for i in range(10)]
+rn = lift(collect_n, *kit)  # Success(value=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+```
+
+### Table of functions
+| Function      | Module       | Result | Maybe | ResultMaybe | MaybeResult |
+|---------------|--------------|--------|-------|-------------|-------------|
+| `fmap`        | direct, flow | +      | +     | +           | +           |
+| `fmap_error`  | direct, flow | +      |       | +           | +           |
+| `fmap_maybe`  | direct, flow |        |       | +           | +           |
+| `fmap_result` | direct, flow |        |       | +           | +           |
+| `bind`        | direct, flow | +      | +     | +           | +           |
+| `fold`        | direct, flow | +      | +     | +           | +           |
+| `get_or_else` | direct, flow | +      | +     | +           | +           |
+| `ap`          | direct, flow | +      | +     | +           | +           |
+| `lift2 `      | lift         | +      | +     | +           | +           |
+| `lift3`       | lift         | +      | +     | +           | +           |
+| `lift4`       | lift         | +      | +     | +           | +           |
+| `lift`        | lift         | +      | +     | +           | +           |
+
+### Example
+Let’s expand the humorous example with safe division:
+```python
+from mafunca.result import from_try, success, fail, Result
+from mafunca.result.flow import fmap, bind
+from mafunca.flow import flow
+
+@from_try
+def divide_unsafe(a: int, b: int) -> int:
+    return int(a / b)
+
+
+def only_even_numbers(a: int) -> Result[int, Exception]:
+    if a % 2 == 0:
+        return success(a)
+    return fail(ValueError(f'An even number was expected, but {a} received'))
+
+
+def strange_handler(a: int, b: int):
+    # We convert functions that can return errors into the Result channel.
+    # Thanks to the chaining functions, all errors are linearly propagated to the end of the chain.
+    # no checks, no external try except, etc. 
+
+    return flow(
+        divide_unsafe(a, b),
+        fmap(lambda v: v + 1),
+        bind(only_even_numbers),
+        fmap(lambda v: v ** 2),
+    )
+
+
+r1 = strange_handler(10, 2)  # Success(value=36)
+r2 = strange_handler(10, 0)  # Fail(error=ZeroDivisionError('division by zero'))
+r3 = strange_handler(4, 2)   # Fail(error=ValueError('An even number was expected, but 3 received'))
+```
+
+### Remarks
+All of this applies only to pure functions without side effects.  
+If you need side effects or asynchrony, look at the effects.  
+
 
 ## Currying
 ### Description of currying
-Examples of currying and the benefits that this approach can provide are given in the section on simple monads - an applicative example.  
+  
 The library implements the following curry decorators:
 - Simple, 100% typed, for functions with a fixed number of positional arguments
-- Powerful, flexible, for functions with arbitrary signatures with the following features:
+- Powerful, flexible, but, unfortunately, not typed, for functions with arbitrary signatures with the following features:
     - Preserving the signature requirements of the original function (only positional or only named arguments, for example)
     - Fail fast. The incorrectness of the passed arguments is evaluated not at the final call of the original function, but at each step(without calling the original function).
     - Flexible support for default values.
@@ -338,9 +454,9 @@ The library implements the following curry decorators:
     - The ability to use positional and/or named arguments in any quantity or combination.
 
 ### Currying examples
-#### For functions with a fixed number of positional arguments
 ```python
-from mafunca.curry import curry2, curry3, curry4
+from mafunca.curry import curry2, curry3, curry4  # fixed and typed
+from mafunca.curry import curry                   # flexible, but not typed
 ```
 #### Preserving the signature requirements:
 ```python
@@ -368,6 +484,7 @@ for_curry(c=1)  # CurryBadArguments: for_curry - got an unexpected keyword argum
 #### Default values and combinations of positional and named arguments:
 ```python
 from mafunca.curry import curry
+
 @curry
 def for_curry(a: int, b: int, c: int = 0, d: int = 0) -> list[int]:
     return [a, b, c, d]
@@ -431,47 +548,42 @@ async def main():
 
 ## Effects
 ### Description of effects
-Of course, we will talk about monads again. But this time, we'll be discussing lazy monads.
+Here we will discuss types and constructions with a lazy execution model.
 Laziness means that the calculation will not be performed until its executor is explicitly called.  
 Why is this necessary at all?  
 A rough example:
 
 ```python
-from mafunca.effect_sync import Effect, pure, delay
+from mafunca.eff import Eff, pure, delay
+from mafunca.eff.flow import bind
 from mafunca.effect_runners import run
+from mafunca.flow import flow
 
-
-def get_addresses_from_database(number: int) -> Effect[list[str]]:
+def get_addresses_from_database(number: int) -> Eff[list[str]]:
     def get_addresses_from_database_inner() -> list[str]: ...
-
-    # the effect involving number
-
+        # ... some operation with side effects involving number
     return delay(get_addresses_from_database_inner)
 
 
-def send_emails_via_smtp(addresses: list[str]) -> Effect[None]:
+def send_emails_via_smtp(addresses: list[str]) -> Eff[None]:
     def send_emails_via_smtp_inner() -> None: ...
-
-    # mailing
-
+    # ... mailing
     return delay(send_emails_via_smtp_inner)
 
 
-def function_with_effects(a: int) -> Effect[None]:
-    return (
-        pure(a ** 2)
-        .bind(get_addresses_from_database)
-        .bind(send_emails_via_smtp)
+def function_with_effects(a: int) -> Eff[None]:
+    return flow(
+        pure(a ** 2),
+        bind(get_addresses_from_database),
+        bind(send_emails_via_smtp)
     )
 
-
-effect: Effect[None] = function_with_effects(10)
+effect = function_with_effects(10)
 run(effect)  # performing side effects
 ```
 Despite the fact that the example includes both reading from a database and sending emails,
 all functions remain pure because they only describe effects,
 but not perform them.  
-Well, why is it necessary at all?
 
 The advantages of laziness and pure functions:
 - Effects become clearly marked. Function and method signatures become more informative
@@ -481,193 +593,304 @@ The advantages of laziness and pure functions:
 - You can test the pure part of the application without fear of causing side effects.
   Even without mock objects
 
-Now let's move on to considering monads for effects.  
-Synchronous and asynchronous effects are strictly separated here
+The effects implemented here have a number of features: 
+- Stack safety
+- Synchronous and asynchronous effects are strictly separated
+- Even in async effects, asynchrony is permissible only in certain nodes.  
+  Chaining functions must be synchronous
+- The ability to configure retries for a specific node in the chain
+- The ability to asynchronously perform blocking IO in a separate thread (for async effects only)
+- Built‑in exception handlers and finalizers
 
-### Synchronous effects
-
+Now let's move on to considering types and constructions.  
+The approach is similar:  
+- there are basic classes and types  
+- there are separate functions for working with them.
 ```python
-from mafunca.effect_sync import Effect
-from mafunca.effect_sync import pure, delay, retry, lift2, lift3, lift4
+from mafunca.eff import Eff  # for synchronous effects
+from mafunca.aff import Aff  # for asynchronous effects
+```
+And the transformers:
+- `EffResult: TypeAlias = Eff[Result[T, E]]`
+- `AffResult: TypeAlias = Aff[Result[T, E]]`
 
+
+### Modules of effects
+The structure of the modules here is similar.
+- basic functions and constructors
+```python
+import mafunca.eff
+import mafunca.eff_trans
+
+import mafunca.aff
+import mafunca.aff_trans
+```
+- chaining functions in a direct form
+```python
+import mafunca.eff.direct
+import mafunca.eff_trans.direct
+
+import mafunca.aff.direct
+import mafunca.aff_trans.direct
+```
+- chaining functions in a flow‑based form
+```python
+import mafunca.eff.flow
+import mafunca.eff_trans.flow
+
+import mafunca.aff.flow
+import mafunca.aff_trans.flow
+```
+- for working with functions of multiple arguments
+```python
+import mafunca.eff.lift
+import mafunca.eff_trans.lift
+
+import mafunca.aff.lift
+import mafunca.aff_trans.lift
+```
+
+### Constructors of effects
+```python
+from mafunca.eff import Eff, pure, delay, retry
 from mafunca.effect_runners import run, run_safe
+
+
+eff1 = pure(1)           # Eff[int]
+eff2 = delay(lambda: 1)  # Eff[int]  
+
+# The ability to configure retries for a specific node in the effects chain.
+# Additional parameters and their values are described in the function’s docstring.
+eff3 = retry(lambda: 1)  # Eff[int]
+
+r1 = run(eff1)  # 1
+r2 = run(eff2)  # 1
+r3 = run(eff3)  # 1
+
+# Executing the effect with error(subclasses of Exception) handling.
+# This runner always returns Result[T, Exception] for Eff[T].
+r4 = run_safe(eff1)  # Success(value=1)
+r5 = run_safe(eff2)  # Success(value=1)
+r6 = run_safe(eff3)  # Success(value=1)
+``` 
+```python
+from mafunca.eff_trans import EffResult, pure_success, pure_fail, pure_result, lift_effect
+from mafunca.eff_trans import delay, retry
+from mafunca.effect_runners import run, run_safe
+
+from mafunca.result import success, fail
+from mafunca.eff import delay as eff_delay
+
+
+eff1 = pure_success(1)                                                # EffResult[int, Never]
+eff2 = pure_fail(0)                                                   # EffResult[Never, int]
+eff3 = pure_result((lambda a: success(a) if a >= 0 else fail(a))(0))  # EffResult[int, int]
+
+origin_delay = eff_delay(lambda: 1)  # Eff[int]
+eff4 = lift_effect(origin_delay)     # EffResult[int, Never]
+
+eff5 = delay(lambda: fail(1))     # EffResult[Never, int]  
+eff6 = retry(lambda: success(1))  # EffResult[int, Never]
+
+r1 = run(eff6)       # Success(value=1)
+
+# returns Result[Result[T, E], Exception] for EffResult[T, E]
+r2 = run_safe(eff6)  # Success(value=Success(value=1))
 ```
 ```python
-class Effect(Generic[A]): ...
-```
-#### Effect methods(`self` is omitted for brevity)
-| Method                                                                            | returns     | description                                                                                        |
-|-----------------------------------------------------------------------------------|-------------|----------------------------------------------------------------------------------------------------|
-| map(fn: Callable[[A], B])                                                         | `Effect[B]` | applies the function, wraps the result                                                             |
-| <nobr>bind(fn: Callable[[A], Effect[B]])</nobr>                                   | `Effect[B]` | applies the function and does not wraps the result                                                 |  
-| <nobr>catch_map(exc_type: type[Exc], catcher: Callable[[Exc], A])</nobr>          | `Effect[A]` | Handler for `Exc` type errors, where `Exc` is a subtype of `Exception`. Wraps the result.          |
-| <nobr>catch_bind(exc_type: type[Exc], catcher: Callable[[Exc], Effect[A]])</nobr> | `Effect[A]` | Handler for `Exc` type errors, where `Exc` is a subtype of `Exception`. Does not wraps the result. |
-| ensure(finalizer: Effect[None])                                                   | `Effect[A]` | Finalizer                                                                                          |
-The methods listed in the table above are only used for binding.  
-To initiate an effect, you need to use one of the module-level functions:
+import asyncio
+from time import sleep
 
-| Function                                                                                                                                                                                                                                                                                                                                     | returns     | description                                                                                                                                                  |
-|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| pure(value: A)                                                                                                                                                                                                                                                                                                                               | `Effect[A]` | Wraps a ready-made value                                                                                                                                     |
-| <nobr>delay(fn: Callable[[], A])</nobr>                                                                                                                                                                                                                                                                                                      | `Effect[A]` | Wraps a SYNCHRONOUS function for delayed execution                                                                                                           |
-| retry(<br/>fn: Callable[[], A],<br/>*,<br/>total_attempts: int = 1,<br/><nobr>pause_seconds_between: Callable[[int], Union[int, float]] = lambda _: 0</nobr>,<br/><nobr>retry_on_result: Callable[[A], bool] = lambda _: False</nobr>,<br/><nobr>retry_on_exceptions: tuple[type[Exception], ...] = ()</nobr>,<br/>step_name: str = ''<br/>) | `Effect[A]` | Wraps a SYNCHRONOUS function for delayed execution. Attempting to repeat it under user-defined conditions. Details can be found in the function's docstring. |
-| lift2(<br/>fn: Callable[[A1, A2], R],<br/>arg1: Effect[A1],<br/>arg2: Effect[A2]<br/>)                                                                                                                                                                                                                                                       | `Effect[R]` | Applies wrapped entities to a two-argument function                                                                                                          |
-| lift3, lift4                                                                                                                                                                                                                                                                                                                                 | `Effect[R]` | Similarly to lift2, but for functions with 3 and 4 positional arguments, respectively                                                                        |
-#### Runners:
-- **run(effect)** - simple executor - just runs a chain
-- **run_safe(effect)** - runs a chain, catching possible errors - heirs of `Exception`
-#### Notes:
-If an exception is thrown that is not a subtype of `Exception`, execution will stop immediately,
-and the `catch_` and `ensure` methods will not be triggered.  
-This remains true even if you set a handler for this exception in the `catch_` method
-
-### Asynchronous effects
-
-```python
-from mafunca.effect_async import Aff
-from mafunca.effect_async import pure, delay, delay_to_thread, retry, lift2, lift3, lift4
-
+from mafunca.aff import Aff, pure, delay, delay_to_thread, retry
 from mafunca.effect_runners import run_async, run_safe_async
+
+async def unblocking() -> int:
+    await asyncio.sleep(1)
+    return 1
+
+def blocking():
+    sleep(1)
+    return 1
+
+eff1 = pure(1)                           # Aff[int]
+eff2 = delay(unblocking, wait_seconds=2) # Aff[int] 
+
+# executing blocking IO in a separate thread, no timers.
+eff3 = delay_to_thread(blocking)  # Aff[int]  
+
+# The ability to configure retries for a specific node in the effects chain.
+# Additional parameters and their values are described in the function’s docstring.
+eff4 = retry(unblocking)  # Aff[int]
+
+async def main():
+    r1 = await run_async(eff1)  # 1    
+    r2 = await run_async(eff2)  # 1    
+    r3 = await run_async(eff3)  # 1    
+    r4 = await run_async(eff4)  # 1 
+
+    # Executing the effect with error handling — subclasses of Exception.
+    # This runner always returns Result[T, Exception] for Eff[T].
+    r5 = await run_safe_async(eff1)  # Success(value=1)   
+    r6 = await run_safe_async(eff2)  # Success(value=1)
+    r7 = await run_safe_async(eff3)  # Success(value=1)
+    r8 = await run_safe_async(eff4)  # Success(value=1)
+
+asyncio.run(main())
 ```
 ```python
-class Aff(Generic[A]): ...
-```
-#### Aff methods(`self` is omitted for brevity)
-| Method                                                                                                           | returns  | description                                                                                        |
-|------------------------------------------------------------------------------------------------------------------|----------|----------------------------------------------------------------------------------------------------|
-| map(fn: Callable[[A], B])                                                                                        | `Aff[B]` | applies the function, wraps the result                                                             |
-| <nobr>bind(fn: Callable[[A], Aff[B]])</nobr>                                                                     | `Aff[B]` | applies the function and does not wraps the result                                                 |  
-| catch_map(<br/><nobr>exc_type: type[Exc],</nobr><br/><nobr>catcher: Callable[[Exc], A]</nobr><br/>)              | `Aff[A]` | Handler for `Exc` type errors, where `Exc` is a subtype of `Exception`. Wraps the result.          |
-| catch_bind(<br/><nobr>exc_type: type[Exc],</nobr><br/><nobr>catcher: Callable[[Exc], Aff[A]]</nobr><br/>)</nobr> | `Aff[A]` | Handler for `Exc` type errors, where `Exc` is a subtype of `Exception`. Does not wraps the result. |
-| ensure(finalizer: Aff[None])                                                                                     | `Aff[A]` | Finalizer                                                                                          |
-The methods listed in the table above are only used for binding.  
-To initiate an effect, you need to use one of the module-level functions:
+import asyncio
+from time import sleep
+from typing import Never
 
-| Function                                                                                                                                                                                                                                                                                                                                                                                                             | returns  | description                                                                                                                                                    |
-|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| pure(value: A)                                                                                                                                                                                                                                                                                                                                                                                                       | `Aff[A]` | Wraps a ready-made value                                                                                                                                       |
-| delay(<br/>fn: Callable[[], Awaitable[A]],<br/>wait_seconds: Union[int, float, None] = None<br/>)                                                                                                                                                                                                                                                                                                                    | `Aff[A]` | Wraps an ASYNCHRONOUS function for delayed execution with optional timer                                                                                       |
-| <nobr>delay_to_thread(fn: Callable[[], A])</nobr>                                                                                                                                                                                                                                                                                                                                                                    | `Aff[A]` | Wraps a SYNCHRONOUS function for delayed execution in a separate thread                                                                                        |
-| retry(<br/>fn: Callable[[], Awaitable[A]],<br/>*,<br/>total_attempts: int = 1,<br/>wait_seconds_on_attempt: Union[int, float, None] = None,<br/><nobr>pause_seconds_between: Callable[[int], Union[int, float]] = lambda _: 0</nobr>,<br/><nobr>retry_on_result: Callable[[A], bool] = lambda _: False</nobr>,<br/><nobr>retry_on_exceptions: tuple[type[Exception], ...] = ()</nobr>,<br/>step_name: str = ''<br/>) | `Aff[A]` | Wraps an ASYNCHRONOUS function for delayed execution. Attempting to repeat it under user-defined conditions. Details can be found in the function's docstring. |
-| lift2(<br/>fn: Callable[[A1, A2], R],<br/>arg1: Aff[A1],<br/>arg2: Aff[A2]<br/>)                                                                                                                                                                                                                                                                                                                                     | `Aff[R]` | Applies wrapped entities to a two-argument function                                                                                                            |
-| lift3, lift4                                                                                                                                                                                                                                                                                                                                                                                                         | `Aff[R]` | Similarly to lift2, but for functions with 3 and 4 positional arguments, respectively                                                                          |
-#### Runners:
-- **run_async(effect)** - awaitable simple executor - just runs a chain
-- **run_safe_async(effect)** - awaitable, runs a chain, catching possible errors - heirs of `Exception` or `TimeoutError`
-#### Notes:
-- Everything that was described in a similar section for synchronous effects remains valid here,
-  except for `asyncio.CancelledError`.  
-  The library is available for python >= 3.11, and in these versions, `asyncio.CancelledError` is not a subtype of `Exception`.  
-  However, `ensure` will be executed when an `asyncio.CancelledError` is thrown.  
-  But if an error occurs in `ensure` itself, it will not replace the `asyncio.CancelledError` and will be lost.  
-  Moreover, if you catch `asyncio.CancelledError` in `catch_` methods, despite the types in the signature and the fact that this is not recommended,
-  the error will actually be caught.
-- Although this is a monad for asynchronous effects, asynchrony is only allowed in the `delay` and `retry` nodes. 
-  These nodes are the initiators of the effect, while the rest are either pure computations or pure transitions to the next effects.
-- `delay_to_thread` does not have a timer because there is no reliable way to cancel a running thread.
+from mafunca.aff_trans import AffResult, pure_success, pure_fail, pure_result, lift_effect
+from mafunca.aff_trans import delay, delay_to_thread, retry
+from mafunca.effect_runners import run_async, run_safe_async
 
-### Transformers
-Each effect monad has its own transformer over Result
+from mafunca.result import Result, success, fail
+from mafunca.aff import delay as aff_delay
 
-```python
-from mafunca.effect_sync_transformer import EffectResult
-from mafunca.effect_sync_transformer import pure, delay, retry
-from mafunca.effect_sync_transformer import lift_error, lift_result, lift_effect
-from mafunca.effect_sync_transformer import lift2, lift3, lift4
-```
-```python
-class EffectResult(Generic[A, E]):    
-    inner: Effect[Result[A, E]]
+async def unblocking() -> int:
+    await asyncio.sleep(1)
+    return 1
+
+async def unblocking_result() -> Result[int, Never]:
+    await asyncio.sleep(1)
+    return success(1)
+
+def blocking_result() -> Result[int, Never]:
+    sleep(1)
+    return success(1)
+
+eff1 = pure_success(1)                                                # AffResult[int, Never]
+eff2 = pure_fail(0)                                                   # AffResult[Never, int]
+eff3 = pure_result((lambda a: success(a) if a >= 0 else fail(a))(0))  # AffResult[int, int]
+
+origin_delay = aff_delay(unblocking, wait_seconds=2)  # Aff[int]
+eff5 = lift_effect(origin_delay)                      # AffResult[int, Never]
+
+eff6 = delay(unblocking_result, wait_seconds=2)  # AffResult[int, Never]
+eff7 = delay_to_thread(blocking_result)          # AffResult[int, Never]  
+eff8 = retry(unblocking_result)                  # AffResult[int, Never]
+
+async def main():
+    r1 = await run_async(eff8)       # Success(value=1)
+    
+    # returns Result[Result[T, E], Exception] for AffResult[T, E]
+    r2 = await run_safe_async(eff8)  # Success(value=Success(value=1))
+
+asyncio.run(main())
 ```
 
-```python
-from mafunca.effect_async_transformer import AffResult
-from mafunca.effect_async_transformer import pure, delay, delay_to_thread, retry
-from mafunca.effect_async_transformer import lift_error, lift_result, lift_effect
-from mafunca.effect_async_transformer import lift2, lift3, lift4
-```
-```python
-class AffResult(Generic[A, E]):    
-    inner: Aff[Result[A, E]]
-```
-The performers are the same:
-```python
-from mafunca.effect_runners import run, run_safe, run_async, run_safe_async
-```
-Transformers have the same set of binding methods, plus:
-- `map_result`
-- `map_error`
-- `catch_map_result`
+### Functions table
+Functions for effects work similarly to functions for Result, Maybe, etc.  
+The only difference is in the types, which are easily readable from the signatures.
+Therefore, only a brief table listing them is provided here.
 
-The purpose of additional functions and methods is easily readable from their signatures,
-so they are not described here.
-
-Also, note that the `ensure` methods expect finalizers of the **original effect type**,
-not the transformer type.
+| Function            | Module       | Eff | EffResult | Aff | AffResult |
+|---------------------|--------------|-----|-----------|-----|-----------|
+| `fmap`              | direct, flow | +   | +         | +   | +         |
+| `fmap_error`        | direct, flow |     | +         |     | +         |
+| `fmap_result`       | direct, flow |     | +         |     | +         |
+| `bind`              | direct, flow | +   | +         | +   | +         |
+| `catch_fmap`        | direct, flow | +   | +         | +   | +         |
+| `catch_fmap_result` | direct, flow |     | +         |     | +         |
+| `catch_bind`        | direct, flow | +   | +         | +   | +         |
+| `ensure `           | direct, flow | +   | +         | +   | +         |
+| `ap`                | direct, flow | +   | +         | +   | +         |
+| `lift2`             | lift         | +   | +         | +   | +         |
+| `lift3`             | lift         | +   | +         | +   | +         |
+| `lift4`             | lift         | +   | +         | +   | +         |
 
 ### General remarks
+Since the effects here have built‑in error handlers and finalizers, it’s worth mentioning some of their features:
+- If an exception is thrown that is not a subtype of `Exception`, execution will stop immediately,  and the `catch_` and `ensure` steps will not be triggered.  
+  This remains true even if you set a handler for this exception in the `catch_`, despite the types.  
+  However, for `asyncio.CancelledError` everything works differently in asynchronous case.  
+  `ensure` will be executed when an `asyncio.CancelledError` is thrown.  
+- The error in `ensure` works similarly to that in `finally` — it replaces the current error (if any) and adds it to its own context.  
+  But if the current error is `asyncio.CancelledError`, then it is not replaced.  
+  Because the cancellation signal is considered to be of higher priority.
+- If you catch `asyncio.CancelledError` in `catch_` methods, despite the types in the signature and the fact that this is not recommended, the error will actually be caught.
+- Be careful with the scopes for the `catch_` and `ensure` methods, for example:
+```python
+from mafunca.eff import delay
+from mafunca.eff.flow import bind, catch_fmap, ensure
+from mafunca.flow import flow
+
+effect = flow(
+  delay(open_resource),
+  bind(lambda resource: flow(
+      delay(hanble_resource),
+      catch_fmap(SomeDomainError, catcher),
+      ensure(delay(close_resource))
+  )),
+  ensure(delay(logging))
+)
+```
+  Here, `ensure(delay(logging))` will always be executed.  
+  But if an error occurs in `open_resource`, then the `catch_map` and `ensure` inside the `bind` will not be executed.  
+  Because the top-level effect, which includes `open_resource`, consists of three steps:  
+- delay(open_resource)
+- a function in bind
+- ensure(delay_logging)
+
+While `catch_` and `ensure` inside `bind` are related to an internal effect and are limited to its scope.
+  
+
+Other remarks:
 - Effect monads are stack-safe, so you can build chains of any length and nesting. 
 - When the `retry` node runs out of attempts to retry based on exceptions or a predicate,
   exceptions `RetryByExceptionError` and `RetryByValueError` are thrown, respectively.
   You can always catch them with `catch_` methods and extract, for example,
   the successful result preceding the `retry` node and/or the value that did not satisfy the predicate.
-- Be careful with the scopes for the `catch_` and `ensure` methods, for example:
-```python
-from mafunca.effect_sync import delay
+- Asynchronous effects: asynchrony is only allowed in the `delay` and `retry` nodes.  
+  These nodes are the initiators of the effect, while the rest are either pure computations or pure transitions to the next effects.
+- `delay_to_thread` does not have a timer because there is no reliable way to cancel a running thread.
 
 
-effect = (
-  delay(open_resource)
-  .bind(lambda resource: (
-      delay(hanble_resource)
-      .catch_map(SomeDomainError, catcher)
-      .ensure(close_resource)
-  ))
-  .ensure(delay(logging))
-)
-```
-Here, `ensure(delay(logging))` will always be executed.  
-But if an error occurs in `open_resource`,
-then the `catch_map` and `ensure` inside the `bind` method will not be executed, because  
-they are not yet added to the continuation stack at the time of `open_resource` execution, only the general lambda function from `bind` is added.
 
 ### Effect examples
 The examples are "toy-like", but they reflect the essence
 
 ```python
-from mafunca.effect_async import Aff, pure, retry
+import asyncio
+
+from mafunca.aff import Aff, pure, retry
+from mafunca.aff.flow import fmap, bind
+from mafunca.flow import flow
 from mafunca.effect_runners import run_async
 
-
 def example_retry() -> Aff[int]:
-  glb = 0
+    glb = 0
 
-  def effect(value):
-    async def effect_inner():
-      nonlocal glb
-      glb += 1
-      if glb < 3:
-        raise TypeError("Example error")
-      return value
+    def effect(value: int):
 
-    return effect_inner
+        async def effect_inner():
+            nonlocal glb
+            glb += 1
+            if glb < 3:
+                raise TypeError("Example error")
+            return value
 
-  eff = (
-    pure(0)
-    .map(lambda v: v + 1)
-    .bind(lambda v: retry(
-      effect(v),
-      total_attempts=3,
-      retry_on_exceptions=(TypeError,)
-    ))
-  )
-  return eff
+        return effect_inner
 
+    eff = flow(
+        pure(0),
+        fmap(lambda v: v + 1),
+        bind(lambda v: retry(
+            effect(v),
+            total_attempts=3,
+            retry_on_exceptions=(TypeError,)
+        ))
+    )
+    return eff
 
 async def main():
   eff = example_retry()
-  res = await run_async(eff)  # 1
+  res = await run_async(eff)  # 1  
   return res
+
+asyncio.run(main())
 ```
 
 
