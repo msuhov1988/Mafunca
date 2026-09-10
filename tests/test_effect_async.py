@@ -348,6 +348,25 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
             await run_async(eff)
         self.assertEqual(glb, 1)
 
+    async def test_ensure_runs_on_task_cancell(self):
+            async def imitation():                
+                await asyncio.sleep(1)
+    
+            glb = 0
+    
+            async def increase():
+                nonlocal glb
+                glb += 1
+    
+            eff = flow(af.delay(imitation), af_flow.ensure(af.delay(increase)))
+            with self.assertRaises(asyncio.CancelledError):
+                task = asyncio.create_task(run_async(eff))
+                await asyncio.sleep(0)
+                task.cancel()
+                await task                
+                self.assertTrue(task.cancelled())
+            self.assertEqual(glb, 1)
+
     async def test_contract_violation(self):
         eff = af_dir.bind(af.pure(0), lambda v: v + 1)  # type: ignore # noqa
         with self.assertRaises(MonadError):
