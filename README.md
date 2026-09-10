@@ -54,7 +54,7 @@ python -m pip install mafunca
 What we want to get: 
 - Transfer errors and missing values to the types
 - To ensure that the next step is not executed if the current one ends in an error / absence of a value. 
-- Maintain the linearity of the execution flow despite all this
+- Maintain the linearity of the execution flow
 
 Let’s define the basic containers and union types: 
 - Success or failure
