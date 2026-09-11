@@ -16,6 +16,10 @@ from mafunca.effect_runners import run_async, run_safe_async
 from mafunca.flow import flow
 
 
+class Crash(BaseException):
+    pass
+
+
 class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
     async def test_init(self):
         async def zero():
@@ -364,13 +368,171 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(0)
                 task.cancel()
                 await task                
-                self.assertTrue(task.cancelled())
             self.assertEqual(glb, 1)
+
+    async def test_base_exception(self):
+        glb = 0
+
+        async def crash():
+            raise Crash("Crash")
+
+        async def mark():
+            nonlocal glb
+            glb += 1
+
+        eff = flow(af.delay(crash), af_flow.ensure(af.delay(mark)))
+        with self.assertRaises(Crash):
+            await run_async(eff)
+        self.assertEqual(glb, 0)
+
+    async def test_base_exception_skips_catch_even_with_matching_handler(self):    
+        log = []
+
+        async def crash():
+            raise Crash("Crash")
+
+        eff = flow(
+            af.delay(crash),
+            af_flow.catch_fmap(Crash, lambda _: log.append("caught") or 0),  # type: ignore # noqa
+        )
+        with self.assertRaises(Crash):
+            await run_async(eff)
+        self.assertEqual(log, [])
+
+    async def test_ensure_order_nested_scopes(self):
+        log: list[str] = []
+
+        def mark(name: str):
+
+            async def inner():                
+                log.append(name)
+
+            return inner
+
+        async def raiser():
+            raise TypeError("fail")
+
+        eff = flow(
+            af.pure(0),
+            af_flow.bind(lambda _: flow(
+                af.delay(raiser),
+                af_flow.ensure(af.delay(mark("inner"))),
+            )),
+            af_flow.ensure(af.delay(mark("outer"))),
+        )
+        with self.assertRaises(TypeError):
+            await run_async(eff)
+        self.assertEqual(log, ["inner", "outer"])
+
+    async def test_ensure_order_sequential_in_chain(self):
+        log: list[str] = []
+
+        def mark(name: str):
+            async def inner():
+                log.append(name)
+            return inner
+
+        async def raiser():
+            raise TypeError("fail")
+
+        eff = flow(
+            af.delay(raiser),
+            af_flow.ensure(af.delay(mark("first"))),
+            af_flow.ensure(af.delay(mark("second"))),
+        )
+        with self.assertRaises(TypeError):
+            await run_async(eff)
+        self.assertEqual(log, ["first", "second"])
+
+    async def test_ensure_order_on_success(self):        
+        log: list[str] = []
+
+        def mark(name: str):
+            async def inner():
+                log.append(name)
+            return inner
+
+        eff = flow(
+            af.pure(0),
+            af_flow.bind(lambda v: flow(
+                af.pure(v + 1),
+                af_flow.ensure(af.delay(mark("inner"))),
+            )),
+            af_flow.ensure(af.delay(mark("outer"))),
+        )
+        self.assertEqual(await run_async(eff), 1)
+        self.assertEqual(log, ["inner", "outer"])
+
+    async def test_ensure_error_on_success_path_replaces_result(self):
+        async def bad_finalizer():
+            raise ValueError("finalizer failed")
+
+        eff = flow(
+            af.pure(42),
+            af_flow.ensure(af.delay(bad_finalizer)),
+        )
+        with self.assertRaises(ValueError):
+            await run_async(eff)
+
+        res = await run_safe_async(eff)
+        self.assertIsInstance(res, Fail)
+        self.assertIsInstance(res.error, ValueError)  # type: ignore # noqa  
+
+    async def test_ensure_error_keeps_original_in_context(self):
+        async def raiser():
+            raise TypeError("raised") 
+
+        async def bad_finalizer():
+            raise ValueError("finalizer failed")  
+
+        eff = flow(
+            af.delay(raiser),
+            af_flow.ensure(af.delay(bad_finalizer)),
+        )
+        with self.assertRaises(ValueError):
+            await run_async(eff)
+        res = await run_safe_async(eff)
+        self.assertIsInstance(res, Fail)
+        error: ValueError = res.error # type: ignore # noqa   
+        self.assertIsInstance(error.__context__, TypeError) 
 
     async def test_contract_violation(self):
         eff = af_dir.bind(af.pure(0), lambda v: v + 1)  # type: ignore # noqa
         with self.assertRaises(MonadError):
             await run_async(eff)  # type: ignore # noqa
+
+    async def test_monad_error_not_caught_by_catch(self):   
+        log = []
+
+        eff = flow(
+            af.pure(0),
+            af_flow.bind(lambda v: v + 1),  # type: ignore # noqa
+            af_flow.catch_fmap(Exception, lambda _: log.append("caught")),  # type: ignore # noqa
+        )
+        with self.assertRaises(MonadError):
+            await run_async(eff)
+        self.assertEqual(log, [])
+
+    async def test_monad_error_not_swallowed_by_run_safe(self):
+        eff = af_dir.bind(af.pure(0), lambda v: v + 1)  # type: ignore # noqa
+        with self.assertRaises(MonadError):
+            await run_safe_async(eff)  # type: ignore # noqa
+
+    async def test_monad_error_skips_ensure(self):        
+        glb = 0
+
+        async def mark():
+            nonlocal glb
+            glb += 1     
+
+        eff = flow(                         # type: ignore # noqa                     
+            af.pure(0),
+            af_flow.bind(lambda v: v + 1),  # type: ignore # noqa
+            af_flow.ensure(af.delay(mark)), # type: ignore # noqa
+        )
+        with self.assertRaises(MonadError):
+            await run_async(eff)  # type: ignore # noqa
+        self.assertEqual(glb, 0)
 
     async def test_run_safe(self):
         async def raiser(a: int):
@@ -503,6 +665,55 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
             af_flow.bind(lambda v: af.retry(effect(v), total_attempts=3, retry_on_result=lambda n: n < 3))
         )
         self.assertEqual(await run_async(eff), 3)
+
+    async def test_retry_error_caught_by_catch_with_context_extraction(self):
+        async def raiser():
+            raise TypeError("always fails")
+
+        def recover(err: RetryByExceptionError):            
+            assert err.previous_result_is_assigned
+            return af.pure(err.previous_result * 100)
+
+        eff = flow(
+            af.pure(0),
+            af_flow.fmap(lambda v: v + 7),
+            af_flow.bind(lambda _: af.retry(
+                raiser, total_attempts=2, retry_on_exceptions=(TypeError,)
+            )),
+            af_flow.catch_bind(RetryByExceptionError, recover),
+        )
+        self.assertEqual(await run_async(eff), 700)
+
+    async def test_retry_value_error_caught_and_current_result_extracted(self):
+        def plus_one(v: int):
+            async def inner():
+                return v + 1
+            return inner
+
+        def recover(err: RetryByValueError):
+            return af.pure(err.current_result)
+
+        eff = flow(
+            af.pure(0),
+            af_flow.bind(lambda v: af.retry(
+                plus_one(v), total_attempts=2, retry_on_result=lambda _: True
+            )),
+            af_flow.catch_bind(RetryByValueError, recover),
+        )
+        self.assertEqual(await run_async(eff), 1)
+
+    async def test_retry_non_matching_exception_propagates_immediately(self):
+        attempts = 0
+
+        async def raiser():
+            nonlocal attempts
+            attempts += 1
+            raise TypeError("not retryable")
+
+        eff = af.retry(raiser, total_attempts=5, retry_on_exceptions=(ValueError,))
+        with self.assertRaises(TypeError):
+            await run_async(eff)
+        self.assertEqual(attempts, 1)
 
     async def test_transformer_pure_chains(self):
         eff = flow(

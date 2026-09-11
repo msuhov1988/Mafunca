@@ -15,6 +15,10 @@ from mafunca.effect_runners import run, run_safe
 from mafunca.flow import flow
 
 
+class Crash(BaseException):
+    pass
+
+
 class TestEffectSync(unittest.TestCase):
     def test_init(self):
         eff = ef.pure(0)
@@ -319,10 +323,185 @@ class TestEffectSync(unittest.TestCase):
         with self.assertRaises(TypeError):
             run(eff)
 
+    def test_base_exception(self):
+        glb = 0
+
+        def crash():
+            raise Crash("Crash")
+
+        def mark():
+            nonlocal glb
+            glb += 1
+
+        eff = flow(ef.delay(crash), ef_flow.ensure(ef.delay(mark)))
+        with self.assertRaises(Crash):
+            run(eff)
+        self.assertEqual(glb, 0)
+
+    def test_base_exception_skips_catch_even_with_matching_handler(self):    
+        log = []
+
+        def crash():
+            raise Crash("Crash")
+
+        eff = flow(
+            ef.delay(crash),
+            ef_flow.catch_fmap(Crash, lambda _: log.append("caught") or 0),  # type: ignore # noqa
+        )
+        with self.assertRaises(Crash):
+            run(eff)
+        self.assertEqual(log, [])
+
+    def test_ensure_order_nested_scopes(self):
+        log: list[str] = []
+
+        def mark(name: str):
+
+            def inner():                
+                log.append(name)
+
+            return inner
+
+        def raiser():
+            raise TypeError("fail")
+
+        eff = flow(
+            ef.pure(0),
+            ef_flow.bind(lambda _: flow(
+                ef.delay(raiser),
+                ef_flow.ensure(ef.delay(mark("inner"))),
+            )),
+            ef_flow.ensure(ef.delay(mark("outer"))),
+        )
+        with self.assertRaises(TypeError):
+            run(eff)
+        self.assertEqual(log, ["inner", "outer"])
+
+    def test_ensure_order_sequential_in_chain(self):
+        log: list[str] = []
+
+        def mark(name: str):
+            def inner():
+                log.append(name)
+            return inner
+
+        def raiser():
+            raise TypeError("fail")
+
+        eff = flow(
+            ef.delay(raiser),
+            ef_flow.ensure(ef.delay(mark("first"))),
+            ef_flow.ensure(ef.delay(mark("second"))),
+        )
+        with self.assertRaises(TypeError):
+            run(eff)
+        self.assertEqual(log, ["first", "second"])
+
+    def test_ensure_order_on_success(self):        
+        log: list[str] = []
+
+        def mark(name: str):
+            def inner():
+                log.append(name)
+            return inner
+
+        eff = flow(
+            ef.pure(0),
+            ef_flow.bind(lambda v: flow(
+                ef.pure(v + 1),
+                ef_flow.ensure(ef.delay(mark("inner"))),
+            )),
+            ef_flow.ensure(ef.delay(mark("outer"))),
+        )
+        self.assertEqual(run(eff), 1)
+        self.assertEqual(log, ["inner", "outer"])
+
+    def test_ensure_error_on_success_path_replaces_result(self):
+        def bad_finalizer():
+            raise ValueError("finalizer failed")
+
+        eff = flow(
+            ef.pure(42),
+            ef_flow.ensure(ef.delay(bad_finalizer)),
+        )
+        with self.assertRaises(ValueError):
+            run(eff)
+
+        res = run_safe(eff)
+        self.assertIsInstance(res, Fail)
+        self.assertIsInstance(res.error, ValueError)  # type: ignore # noqa  
+
+    def test_ensure_error_keeps_original_in_context(self):
+        def raiser():
+            raise TypeError("raised") 
+
+        def bad_finalizer():
+            raise ValueError("finalizer failed")  
+
+        eff = flow(
+            ef.delay(raiser),
+            ef_flow.ensure(ef.delay(bad_finalizer)),
+        )
+        with self.assertRaises(ValueError):
+            run(eff)
+        res = run_safe(eff)
+        self.assertIsInstance(res, Fail)
+        error: ValueError = res.error # type: ignore # noqa   
+        self.assertIsInstance(error.__context__, TypeError) 
+
     def test_contract_violation(self):
         eff = flow(ef.delay(lambda: 0), ef_flow.bind(lambda v: v + 1))  # type: ignore # noqa
         with self.assertRaises(MonadError):
             run(eff)  # type: ignore # noqa
+
+    def test_retry_error_caught_by_catch_with_context_extraction(self):
+        def raiser():
+            raise TypeError("always fails")
+
+        def recover(err: RetryByExceptionError):            
+            assert err.previous_result_is_assigned
+            return ef.pure(err.previous_result * 100)
+
+        eff = flow(
+            ef.pure(0),
+            ef_flow.fmap(lambda v: v + 7),
+            ef_flow.bind(lambda _: ef.retry(
+                raiser, total_attempts=2, retry_on_exceptions=(TypeError,)
+            )),
+            ef_flow.catch_bind(RetryByExceptionError, recover),
+        )
+        self.assertEqual(run(eff), 700)
+
+    def test_retry_value_error_caught_and_current_result_extracted(self):
+        def plus_one(v: int):
+            def inner():
+                return v + 1
+            return inner
+
+        def recover(err: RetryByValueError):
+            return ef.pure(err.current_result)
+
+        eff = flow(
+            ef.pure(0),
+            ef_flow.bind(lambda v: ef.retry(
+                plus_one(v), total_attempts=2, retry_on_result=lambda _: True
+            )),
+            ef_flow.catch_bind(RetryByValueError, recover),
+        )
+        self.assertEqual(run(eff), 1)
+
+    def test_retry_non_matching_exception_propagates_immediately(self):
+        attempts = 0
+
+        def raiser():
+            nonlocal attempts
+            attempts += 1
+            raise TypeError("not retryable")
+
+        eff = ef.retry(raiser, total_attempts=5, retry_on_exceptions=(ValueError,))
+        with self.assertRaises(TypeError):
+            run(eff)
+        self.assertEqual(attempts, 1)
 
     def test_run_safe(self):
         def raiser(a: int):
