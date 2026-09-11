@@ -363,12 +363,13 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
                 glb += 1
     
             eff = flow(af.delay(imitation), af_flow.ensure(af.delay(increase)))
-            with self.assertRaises(asyncio.CancelledError):
-                task = asyncio.create_task(run_async(eff))
+            task = asyncio.create_task(run_async(eff))
+            with self.assertRaises(asyncio.CancelledError):    
                 await asyncio.sleep(0)
                 task.cancel()
                 await task                
             self.assertEqual(glb, 1)
+            self.assertTrue(task.cancelled())
 
     async def test_base_exception(self):
         glb = 0
