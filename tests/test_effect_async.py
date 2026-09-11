@@ -992,7 +992,7 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
 
         eff = trans_lift.lift2(two, trans.delay(err), trans.pure_result(Success(1)))
         res = await run_async(eff)
-        self.assertTrue(res, Fail)
+        self.assertIsInstance(res, Fail)
         self.assertEqual(res.error, 0)  # type: ignore # noqa
 
     async def test_lift3_transformer(self):
