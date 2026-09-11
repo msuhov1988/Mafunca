@@ -896,6 +896,104 @@ class TestEffectSync(unittest.TestCase):
         self.assertTrue(isinstance(res, Fail))
         self.assertEqual(res.error if isinstance(res, Fail) else 100, 0)
 
+    def test_stack_safety_ensure_unwind(self):        
+        counter = 0
+
+        def inc():
+            nonlocal counter
+            counter += 1
+
+        def raiser():
+            raise TypeError("bottom")
+
+        eff = ef.delay(raiser)
+        for _ in range(10_000):
+            eff = ef_dir.ensure(eff, ef.delay(inc))
+
+        with self.assertRaises(TypeError):
+            run(eff)
+        self.assertEqual(counter, 10_000) 
+
+    def test_stack_safety_ensure_unwind_on_success(self):        
+        counter = 0
+
+        def inc():
+            nonlocal counter
+            counter += 1
+
+        eff = ef.pure(1)
+        for _ in range(10_000):
+            eff = ef_dir.ensure(eff, ef.delay(inc))
+
+        self.assertEqual(run(eff), 1)
+        self.assertEqual(counter, 10_000) 
+
+    def test_stack_safety_catch_chain(self):        
+        eff = ef.pure(0)
+        for _ in range(10_000):
+            eff = ef_dir.catch_fmap(eff, ValueError, lambda _: -1)
+        self.assertEqual(run(eff), 0)
+
+    def test_stack_safety_catch_chain_with_error_at_bottom(self):        
+        def raiser():
+            raise ValueError("bottom")            
+
+        caught = 0
+
+        def catcher(_: Exception):
+            nonlocal caught
+            caught += 1
+            return 7
+
+        eff = ef.delay(raiser)
+        for _ in range(10_000):
+            eff = ef_dir.catch_fmap(eff, ValueError, catcher)
+
+        self.assertEqual(run(eff), 7)
+        self.assertEqual(caught, 1)
+
+    def test_lift2_execution_order(self):
+        log: list[str] = []
+
+        def mk(name: str, value: int):
+            def inner():
+                log.append(name)
+                return value
+            return inner
+
+        eff = ef_lift.lift2(
+            lambda a, b: [a, b],
+            ef.delay(mk("a", 1)),
+            ef.delay(mk("b", 2)),
+        )
+        self.assertEqual(run(eff), [1, 2])
+        self.assertEqual(log, ["a", "b"])
+
+    def test_lift_short_circuit_skips_remaining_effects(self):       
+        log: list[str] = []
+
+        def mk_ok(name: str, value: int):
+            def inner():
+                log.append(name)
+                return success(value)
+            return inner
+
+        def mk_err(name: str):
+            def inner():
+                log.append(name)
+                return fail(0)
+            return inner
+
+        eff = trans_lift.lift3(         # type: ignore # noqa
+            lambda a, b, c: [a, b, c],  # type: ignore # noqa
+            trans.delay(mk_ok("a", 1)),
+            trans.delay(mk_err("b")),
+            trans.delay(mk_ok("c", 3)),
+        )
+        res = run(eff)                    # type: ignore # noqa
+        self.assertIsInstance(res, Fail)  # type: ignore # noqa
+        self.assertEqual(log, ["a", "b"])
+
 
 if __name__ == '__main__':
     unittest.main()

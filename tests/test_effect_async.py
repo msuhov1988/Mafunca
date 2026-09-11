@@ -1087,6 +1087,135 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(res, Fail)
         self.assertEqual(res.error, 0)  # type: ignore # noqa
 
+    async def test_cancellation_during_retry_pause(self):
+        log: list[str] = []
+        attempts = 0
+
+        async def mark():
+            log.append("ensure")
+
+        async def raiser():
+            nonlocal attempts
+            attempts += 1
+            raise TypeError("retryable")
+
+        eff = flow(
+            af.retry(
+                raiser,
+                total_attempts=10,
+                retry_on_exceptions=(TypeError,),
+                pause_seconds_between=lambda _: 5,
+            ),
+            af_flow.ensure(af.delay(mark)),
+        )
+
+        task = asyncio.create_task(run_async(eff))
+        await asyncio.sleep(0.1)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertTrue(task.cancelled()) 
+        self.assertEqual(attempts, 1) 
+        self.assertEqual(log, ["ensure"])  
+
+    async def test_stack_safety_ensure_unwind(self):        
+        counter = 0
+
+        async def inc():
+            nonlocal counter
+            counter += 1
+
+        async def raiser():
+            raise TypeError("bottom")
+
+        eff = af.delay(raiser)
+        for _ in range(10_000):
+            eff = af_dir.ensure(eff, af.delay(inc))
+
+        with self.assertRaises(TypeError):
+            await run_async(eff)
+        self.assertEqual(counter, 10_000) 
+
+    async def test_stack_safety_ensure_unwind_on_success(self):        
+        counter = 0
+
+        async def inc():
+            nonlocal counter
+            counter += 1
+
+        eff = af.pure(1)
+        for _ in range(10_000):
+            eff = af_dir.ensure(eff, af.delay(inc))
+
+        self.assertEqual(await run_async(eff), 1)
+        self.assertEqual(counter, 10_000) 
+
+    async def test_stack_safety_catch_chain(self):        
+        eff = af.pure(0)
+        for _ in range(10_000):
+            eff = af_dir.catch_fmap(eff, ValueError, lambda _: -1)
+        self.assertEqual(await run_async(eff), 0)
+
+    async def test_stack_safety_catch_chain_with_error_at_bottom(self):        
+        async def raiser():
+            raise ValueError("bottom")            
+
+        caught = 0
+
+        def catcher(_: Exception):
+            nonlocal caught
+            caught += 1
+            return 7
+
+        eff = af.delay(raiser)
+        for _ in range(10_000):
+            eff = af_dir.catch_fmap(eff, ValueError, catcher)
+
+        self.assertEqual(await run_async(eff), 7)
+        self.assertEqual(caught, 1)
+
+    async def test_lift2_execution_order(self):
+        log: list[str] = []
+
+        def mk(name: str, value: int):
+            async def inner():
+                log.append(name)
+                return value
+            return inner
+
+        eff = af_lift.lift2(
+            lambda a, b: [a, b],
+            af.delay(mk("a", 1)),
+            af.delay(mk("b", 2)),
+        )
+        self.assertEqual(await run_async(eff), [1, 2])
+        self.assertEqual(log, ["a", "b"])
+
+    async def test_lift_short_circuit_skips_remaining_effects(self):       
+        log: list[str] = []
+
+        def mk_ok(name: str, value: int):
+            async def inner():
+                log.append(name)
+                return success(value)
+            return inner
+
+        def mk_err(name: str):
+            async def inner():
+                log.append(name)
+                return fail(0)
+            return inner
+
+        eff = trans_lift.lift3(         # type: ignore # noqa
+            lambda a, b, c: [a, b, c],  # type: ignore # noqa
+            trans.delay(mk_ok("a", 1)),
+            trans.delay(mk_err("b")),
+            trans.delay(mk_ok("c", 3)),
+        )
+        res = await run_async(eff)        # type: ignore # noqa
+        self.assertIsInstance(res, Fail)  # type: ignore # noqa
+        self.assertEqual(log, ["a", "b"])
+
 
 if __name__ == '__main__':
     unittest.main()

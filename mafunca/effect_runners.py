@@ -122,7 +122,10 @@ async def _async_perform_with_retry(
             pause = either_pause.value
             if pause < 0:
                 return _raise_and_wrap(RetryBadPauseError(node.step_name))
-            await asyncio.sleep(pause)
+            try:
+                await asyncio.sleep(pause)
+            except asyncio.CancelledError as err:
+                return Fail(err)
 
     if isinstance(either_result, Fail): 
         error = cast(Exception, either_result.error)  # retry on asyncio.CancelledError is prohibited at the type level.       
@@ -303,9 +306,9 @@ async def run_async(effect: Aff[A]) -> A:
                 r = await _async_perform_thread(node.thunk)
                 scope.node, scope.error = (_PureAsync(r.value), scope.error) if isinstance(r, Success) else (node, r.error)
 
-            elif isinstance(node, _RetryAsync):
+            elif isinstance(node, _RetryAsync):                
                 r = await _async_perform_with_retry(node, previous_result=scope.result, is_assigned=scope.is_assigned)
-                scope.node, scope.error = (_PureAsync(r.value), scope.error) if isinstance(r, Success) else (node, r.error)
+                scope.node, scope.error = (_PureAsync(r.value), scope.error) if isinstance(r, Success) else (node, r.error)                
 
             elif isinstance(node, _PureAsync):
                 scope.result, scope.is_assigned = node.value, True
