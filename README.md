@@ -597,10 +597,11 @@ The effects implemented here have a number of features:
 - Stack safety
 - Synchronous and asynchronous effects are strictly separated
 - Even in async effects, asynchrony is permissible only in certain nodes.  
-  Chaining functions must be synchronous
+  Functions linking the steps must be synchronous
 - The ability to configure retries for a specific node in the chain
 - The ability to asynchronously perform blocking IO in a separate thread (for async effects only)
-- Built‑in exception handlers and finalizers
+- Built‑in exception handlers and finalizers  
+  IMPORTANT: these are not 100% equivalent to the built‑in `except` and `finally`. Details in the general remarks.
 
 Now let's move on to considering types and constructions.  
 The approach is similar:  
@@ -834,7 +835,12 @@ effect = flow(
 - a function in bind
 - ensure(delay_logging)
 
-While `catch_` and `ensure` inside `bind` are related to an internal effect and are limited to its scope.
+While `catch_` and `ensure` inside `bind` are related to an internal effect and are limited to its scope.  
+
+Thus, `catch` and `ensure` can be considered as analogues of the built‑in `except` and `finally` in the following scenarios:
+- ordinary errors during execution
+- standard cancellation based on asyncio.CancelledError
+
   
 
 Other remarks:
