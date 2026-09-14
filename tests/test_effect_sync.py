@@ -188,7 +188,7 @@ class TestEffectSync(unittest.TestCase):
         eff = flow(
             ef.delay(lambda: 0),
             ef_flow.fmap(lambda v: v + 1),
-            ef_flow.ensure(ef.delay(increase))
+            ef_flow.ensure_soft(ef.delay(increase))
         )
         res = run(eff)
         self.assertEqual(res, 1)
@@ -197,29 +197,29 @@ class TestEffectSync(unittest.TestCase):
         eff = flow(
             ef.delay(lambda: raiser(-10)),
             ef_flow.fmap(lambda v: v + 1),
-            ef_flow.ensure(ef.delay(increase))
+            ef_flow.ensure_soft(ef.delay(increase))
         )
         with self.assertRaises(TypeError):
             run(eff)
         self.assertEqual(glb, 2)
 
         eff = ef.delay(lambda: raiser(-10))
-        eff = ef_dir.ensure(eff, ef.delay(increase))
-        eff = ef_dir.ensure(eff, ef.delay(increase))
+        eff = ef_dir.ensure_soft(eff, ef.delay(increase))
+        eff = ef_dir.ensure_soft(eff, ef.delay(increase))
         with self.assertRaises(TypeError):
             run(eff)
         self.assertEqual(glb, 4)
 
         eff = flow(
             ef.delay(lambda: raiser(-10)),
-            ef_flow.ensure(ef.delay(increase)),
-            ef_flow.ensure(ef.delay(increase)),
+            ef_flow.ensure_soft(ef.delay(increase)),
+            ef_flow.ensure_soft(ef.delay(increase)),
         )
         with self.assertRaises(TypeError):
             run(eff)
         self.assertEqual(glb, 6)
 
-        eff = ef_dir.ensure(ef.pure(0), ef.delay(increase))
+        eff = ef_dir.ensure_soft(ef.pure(0), ef.delay(increase))
         run(eff)
         self.assertEqual(glb, 7)
 
@@ -237,7 +237,7 @@ class TestEffectSync(unittest.TestCase):
 
         eff = flow(
             ef.delay(lambda: raiser(-10)),
-            ef_flow.bind(lambda v: ef_dir.ensure(ef.pure(v + 1), ef.delay(increase)))
+            ef_flow.bind(lambda v: ef_dir.ensure_soft(ef.pure(v + 1), ef.delay(increase)))
         )
         with self.assertRaises(TypeError):
             run(eff)
@@ -245,7 +245,7 @@ class TestEffectSync(unittest.TestCase):
 
         eff = flow(
             ef.pure(0),
-            ef_flow.bind(lambda _: ef_dir.ensure(ef.delay(lambda: raiser(-10)), ef.delay(increase)))
+            ef_flow.bind(lambda _: ef_dir.ensure_soft(ef.delay(lambda: raiser(-10)), ef.delay(increase)))
         )
         with self.assertRaises(TypeError):
             run(eff)
@@ -264,7 +264,7 @@ class TestEffectSync(unittest.TestCase):
                     )
                 )
             ),
-            ef_flow.ensure(ef.delay(increase)),
+            ef_flow.ensure_soft(ef.delay(increase)),
         )
         with self.assertRaises(TypeError):
             run(eff)
@@ -272,7 +272,7 @@ class TestEffectSync(unittest.TestCase):
 
         eff = flow(
             ef.delay(lambda: raiser(-10)),
-            ef_flow.catch_bind(TypeError, lambda _: ef_dir.ensure(ef.pure(1), ef.delay(increase)))
+            ef_flow.catch_bind(TypeError, lambda _: ef_dir.ensure_soft(ef.pure(1), ef.delay(increase)))
         )
         self.assertEqual(run(eff), 1)
         self.assertEqual(glb, 3)
@@ -296,15 +296,15 @@ class TestEffectSync(unittest.TestCase):
 
         eff = flow(
             ef.delay(lambda: raiser(-10)),
-            ef_flow.ensure(ef.delay(lambda: additional_raiser(-10))),
+            ef_flow.ensure_soft(ef.delay(lambda: additional_raiser(-10))),
             ef_flow.catch_fmap(ValueError, lambda _: 0)
         )
         self.assertEqual(run(eff), 0)
 
         eff = flow(
             ef.delay(lambda: raiser(-10)),
-            ef_flow.ensure(ef.delay(lambda: additional_raiser(-10))),
-            ef_flow.ensure(ef.delay(increase)),
+            ef_flow.ensure_soft(ef.delay(lambda: additional_raiser(-10))),
+            ef_flow.ensure_soft(ef.delay(increase)),
             ef_flow.catch_fmap(ValueError, lambda _: 0),
             ef_flow.fmap(lambda v: v + 1),
         )        
@@ -313,7 +313,7 @@ class TestEffectSync(unittest.TestCase):
 
         eff = flow(
             ef.delay(lambda: raiser(-10)),
-            ef_flow.ensure(
+            ef_flow.ensure_soft(
                 flow(
                     ef.delay(lambda: additional_raiser(-10)),
                     ef_flow.catch_fmap(ValueError, lambda _: None)
@@ -333,7 +333,7 @@ class TestEffectSync(unittest.TestCase):
             nonlocal glb
             glb += 1
 
-        eff = flow(ef.delay(crash), ef_flow.ensure(ef.delay(mark)))
+        eff = flow(ef.delay(crash), ef_flow.ensure_soft(ef.delay(mark)))
         with self.assertRaises(Crash):
             run(eff)
         self.assertEqual(glb, 0)
@@ -369,9 +369,9 @@ class TestEffectSync(unittest.TestCase):
             ef.pure(0),
             ef_flow.bind(lambda _: flow(
                 ef.delay(raiser),
-                ef_flow.ensure(ef.delay(mark("inner"))),
+                ef_flow.ensure_soft(ef.delay(mark("inner"))),
             )),
-            ef_flow.ensure(ef.delay(mark("outer"))),
+            ef_flow.ensure_soft(ef.delay(mark("outer"))),
         )
         with self.assertRaises(TypeError):
             run(eff)
@@ -390,8 +390,8 @@ class TestEffectSync(unittest.TestCase):
 
         eff = flow(
             ef.delay(raiser),
-            ef_flow.ensure(ef.delay(mark("first"))),
-            ef_flow.ensure(ef.delay(mark("second"))),
+            ef_flow.ensure_soft(ef.delay(mark("first"))),
+            ef_flow.ensure_soft(ef.delay(mark("second"))),
         )
         with self.assertRaises(TypeError):
             run(eff)
@@ -409,9 +409,9 @@ class TestEffectSync(unittest.TestCase):
             ef.pure(0),
             ef_flow.bind(lambda v: flow(
                 ef.pure(v + 1),
-                ef_flow.ensure(ef.delay(mark("inner"))),
+                ef_flow.ensure_soft(ef.delay(mark("inner"))),
             )),
-            ef_flow.ensure(ef.delay(mark("outer"))),
+            ef_flow.ensure_soft(ef.delay(mark("outer"))),
         )
         self.assertEqual(run(eff), 1)
         self.assertEqual(log, ["inner", "outer"])
@@ -422,7 +422,7 @@ class TestEffectSync(unittest.TestCase):
 
         eff = flow(
             ef.pure(42),
-            ef_flow.ensure(ef.delay(bad_finalizer)),
+            ef_flow.ensure_soft(ef.delay(bad_finalizer)),
         )
         with self.assertRaises(ValueError):
             run(eff)
@@ -440,7 +440,7 @@ class TestEffectSync(unittest.TestCase):
 
         eff = flow(
             ef.delay(raiser),
-            ef_flow.ensure(ef.delay(bad_finalizer)),
+            ef_flow.ensure_soft(ef.delay(bad_finalizer)),
         )
         with self.assertRaises(ValueError):
             run(eff)
@@ -908,7 +908,7 @@ class TestEffectSync(unittest.TestCase):
 
         eff = ef.delay(raiser)
         for _ in range(10_000):
-            eff = ef_dir.ensure(eff, ef.delay(inc))
+            eff = ef_dir.ensure_soft(eff, ef.delay(inc))
 
         with self.assertRaises(TypeError):
             run(eff)
@@ -923,7 +923,7 @@ class TestEffectSync(unittest.TestCase):
 
         eff = ef.pure(1)
         for _ in range(10_000):
-            eff = ef_dir.ensure(eff, ef.delay(inc))
+            eff = ef_dir.ensure_soft(eff, ef.delay(inc))
 
         self.assertEqual(run(eff), 1)
         self.assertEqual(counter, 10_000) 

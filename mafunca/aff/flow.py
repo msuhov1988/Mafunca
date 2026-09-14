@@ -71,8 +71,16 @@ def catch_bind(exc_type: type[Exc], catcher: Callable[[Exc], Aff[A]]) -> Callabl
     return cathc_bind_inner
 
 
-def ensure(finalizer: Aff[None]) -> Callable[[Aff[A]], Aff[A]]:
+def ensure_soft(finalizer: Aff[None]) -> Callable[[Aff[A]], Aff[A]]:
+    """
+        'Soft' finalizer.
 
+        It behaves like `finally` in all normal execution scenarios:
+
+        - successful completion
+        - exceptions that are subclasses of `Exception`
+        - standard asynchronous cancellation via `asyncio.CancelledError`
+    """
     def ensure_inner(effect: Aff[A])  -> Aff[A]:
         return _EnsureAsync(effect, finalizer)
 

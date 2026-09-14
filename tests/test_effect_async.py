@@ -203,7 +203,7 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
             nonlocal glb
             glb += 1
 
-        eff = af_dir.ensure(af_dir.fmap(af.pure(0), lambda v: v + 1), af.delay(increase))
+        eff = af_dir.ensure_soft(af_dir.fmap(af.pure(0), lambda v: v + 1), af.delay(increase))
         res = await run_async(eff)
         self.assertEqual(res, 1)
         self.assertEqual(glb, 1)
@@ -211,27 +211,27 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
         eff = flow(
             af.delay(lambda: raiser(-1)),
             af_flow.fmap(lambda v: v + 1),
-            af_flow.ensure(af.delay(increase))
+            af_flow.ensure_soft(af.delay(increase))
         )
         with self.assertRaises(TypeError):
             await run_async(eff)
         self.assertEqual(glb, 2)
 
-        eff = af_dir.ensure(af_dir.ensure(af.delay(lambda: raiser(-1)), af.delay(increase)), af.delay(increase))
+        eff = af_dir.ensure_soft(af_dir.ensure_soft(af.delay(lambda: raiser(-1)), af.delay(increase)), af.delay(increase))
         with self.assertRaises(TypeError):
             await run_async(eff)
         self.assertEqual(glb, 4)
 
         eff = flow(
             af.delay(lambda: raiser(-1)),
-            af_flow.ensure(af.delay(increase)),
-            af_flow.ensure(af.delay(increase))
+            af_flow.ensure_soft(af.delay(increase)),
+            af_flow.ensure_soft(af.delay(increase))
         )
         with self.assertRaises(TypeError):
             await run_async(eff)
         self.assertEqual(glb, 6)
 
-        eff = af_dir.ensure(af.pure(0), af.delay(increase))
+        eff = af_dir.ensure_soft(af.pure(0), af.delay(increase))
         await run_async(eff)
         self.assertEqual(glb, 7)
 
@@ -254,7 +254,7 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
 
         eff = flow(
             af.delay(lambda: raiser(-1)),
-            af_flow.bind(lambda v: af_dir.ensure(af.pure(v + 1), af.delay(increase)))
+            af_flow.bind(lambda v: af_dir.ensure_soft(af.pure(v + 1), af.delay(increase)))
         )
         with self.assertRaises(TypeError):
             await run_async(eff)
@@ -262,7 +262,7 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
 
         eff = flow(
             af.pure(0),
-            af_flow.bind(lambda _: af_dir.ensure(af.delay(lambda: raiser(-1)), af.delay(increase)))
+            af_flow.bind(lambda _: af_dir.ensure_soft(af.delay(lambda: raiser(-1)), af.delay(increase)))
         )
         with self.assertRaises(TypeError):
             await run_async(eff)
@@ -281,7 +281,7 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
                     )
                 )
             ),
-            af_flow.ensure(af.delay(increase))
+            af_flow.ensure_soft(af.delay(increase))
         )
         with self.assertRaises(TypeError):
             await run_async(eff)
@@ -289,7 +289,7 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
 
         eff = flow(
             af.delay(lambda: raiser(-1)),
-            af_flow.catch_bind(TypeError, lambda _: flow(af.pure(1), af_flow.ensure(af.delay(increase))))
+            af_flow.catch_bind(TypeError, lambda _: flow(af.pure(1), af_flow.ensure_soft(af.delay(increase))))
         )
         self.assertEqual(await run_async(eff), 1)
         self.assertEqual(glb, 3)
@@ -313,15 +313,15 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
 
         eff = flow(
             af.delay(lambda: raiser(-1)),
-            af_flow.ensure(af.delay(lambda: additional_raiser(-1))),
+            af_flow.ensure_soft(af.delay(lambda: additional_raiser(-1))),
             af_flow.catch_fmap(ValueError, lambda _: 0)
         )
         self.assertEqual(await run_async(eff), 0)
 
         eff = flow(
             af.delay(lambda: raiser(-1)),
-            af_flow.ensure(af.delay(lambda: additional_raiser(-1))),
-            af_flow.ensure(af.delay(increase)),
+            af_flow.ensure_soft(af.delay(lambda: additional_raiser(-1))),
+            af_flow.ensure_soft(af.delay(increase)),
             af_flow.catch_fmap(ValueError, lambda _: 0),
             af_flow.fmap(lambda v: v + 1)
         )
@@ -330,7 +330,7 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
 
         eff = flow(
             af.delay(lambda: raiser(-1)),
-            af_flow.ensure(
+            af_flow.ensure_soft(
                 af_dir.catch_fmap(af.delay(lambda: additional_raiser(-1)), ValueError, lambda _: None)
             )
         )
@@ -347,7 +347,7 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
             nonlocal glb
             glb += 1
 
-        eff = flow(af.delay(cancelled), af_flow.ensure(af.delay(increase)))
+        eff = flow(af.delay(cancelled), af_flow.ensure_soft(af.delay(increase)))
         with self.assertRaises(asyncio.CancelledError):
             await run_async(eff)
         self.assertEqual(glb, 1)
@@ -362,7 +362,7 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
                 nonlocal glb
                 glb += 1
     
-            eff = flow(af.delay(imitation), af_flow.ensure(af.delay(increase)))
+            eff = flow(af.delay(imitation), af_flow.ensure_soft(af.delay(increase)))
             task = asyncio.create_task(run_async(eff))
             with self.assertRaises(asyncio.CancelledError):    
                 await asyncio.sleep(0)
@@ -381,7 +381,7 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
             nonlocal glb
             glb += 1
 
-        eff = flow(af.delay(crash), af_flow.ensure(af.delay(mark)))
+        eff = flow(af.delay(crash), af_flow.ensure_soft(af.delay(mark)))
         with self.assertRaises(Crash):
             await run_async(eff)
         self.assertEqual(glb, 0)
@@ -417,9 +417,9 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
             af.pure(0),
             af_flow.bind(lambda _: flow(
                 af.delay(raiser),
-                af_flow.ensure(af.delay(mark("inner"))),
+                af_flow.ensure_soft(af.delay(mark("inner"))),
             )),
-            af_flow.ensure(af.delay(mark("outer"))),
+            af_flow.ensure_soft(af.delay(mark("outer"))),
         )
         with self.assertRaises(TypeError):
             await run_async(eff)
@@ -438,8 +438,8 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
 
         eff = flow(
             af.delay(raiser),
-            af_flow.ensure(af.delay(mark("first"))),
-            af_flow.ensure(af.delay(mark("second"))),
+            af_flow.ensure_soft(af.delay(mark("first"))),
+            af_flow.ensure_soft(af.delay(mark("second"))),
         )
         with self.assertRaises(TypeError):
             await run_async(eff)
@@ -457,9 +457,9 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
             af.pure(0),
             af_flow.bind(lambda v: flow(
                 af.pure(v + 1),
-                af_flow.ensure(af.delay(mark("inner"))),
+                af_flow.ensure_soft(af.delay(mark("inner"))),
             )),
-            af_flow.ensure(af.delay(mark("outer"))),
+            af_flow.ensure_soft(af.delay(mark("outer"))),
         )
         self.assertEqual(await run_async(eff), 1)
         self.assertEqual(log, ["inner", "outer"])
@@ -470,7 +470,7 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
 
         eff = flow(
             af.pure(42),
-            af_flow.ensure(af.delay(bad_finalizer)),
+            af_flow.ensure_soft(af.delay(bad_finalizer)),
         )
         with self.assertRaises(ValueError):
             await run_async(eff)
@@ -488,7 +488,7 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
 
         eff = flow(
             af.delay(raiser),
-            af_flow.ensure(af.delay(bad_finalizer)),
+            af_flow.ensure_soft(af.delay(bad_finalizer)),
         )
         with self.assertRaises(ValueError):
             await run_async(eff)
@@ -529,7 +529,7 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
         eff = flow(                         # type: ignore # noqa                     
             af.pure(0),
             af_flow.bind(lambda v: v + 1),  # type: ignore # noqa
-            af_flow.ensure(af.delay(mark)), # type: ignore # noqa
+            af_flow.ensure_soft(af.delay(mark)), # type: ignore # noqa
         )
         with self.assertRaises(MonadError):
             await run_async(eff)  # type: ignore # noqa
@@ -852,7 +852,7 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
         res = await run_async(eff)
         self.assertEqual(res, 1)
 
-        eff = af_dir.ensure(af.delay(zero, wait_seconds=0.1), af.delay(increase))
+        eff = af_dir.ensure_soft(af.delay(zero, wait_seconds=0.1), af.delay(increase))
         with self.assertRaises(TimeoutError):
             await run_async(eff)
         self.assertEqual(glb, 1)
@@ -918,7 +918,7 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
 
         eff = flow(
             af.delay(lambda: cancelled(-1)),
-            af_flow.ensure(af.delay(lambda: error_raiser(-1)))
+            af_flow.ensure_soft(af.delay(lambda: error_raiser(-1)))
         )
         with self.assertRaises(asyncio.CancelledError):
             await run_async(eff)
@@ -1106,7 +1106,7 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
                 retry_on_exceptions=(TypeError,),
                 pause_seconds_between=lambda _: 5,
             ),
-            af_flow.ensure(af.delay(mark)),
+            af_flow.ensure_soft(af.delay(mark)),
         )
 
         task = asyncio.create_task(run_async(eff))
@@ -1130,7 +1130,7 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
 
         eff = af.delay(raiser)
         for _ in range(10_000):
-            eff = af_dir.ensure(eff, af.delay(inc))
+            eff = af_dir.ensure_soft(eff, af.delay(inc))
 
         with self.assertRaises(TypeError):
             await run_async(eff)
@@ -1145,7 +1145,7 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
 
         eff = af.pure(1)
         for _ in range(10_000):
-            eff = af_dir.ensure(eff, af.delay(inc))
+            eff = af_dir.ensure_soft(eff, af.delay(inc))
 
         self.assertEqual(await run_async(eff), 1)
         self.assertEqual(counter, 10_000) 

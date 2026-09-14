@@ -606,9 +606,9 @@ The effects implemented here have a number of features:
   It behaves like `finally` in all normal execution scenarios supported by this library:
   - successful completion
   - exceptions that are subclasses of `Exception`
-  - standart asynchronous cancellation via `asyncio.CancelledError`  
+  - standard asynchronous cancellation via `asyncio.CancelledError`  
   
-  The only difference from built-in `finally` is that these finalizers is not guaranted to run
+  The only difference from built-in `finally` is that these finalizers is not guaranteed to run
   when execution is interrupted by an error that is not subclass of `Exception`, except for `asyncio.CancelledError`
   in asynchronous effects.
 
@@ -808,7 +808,7 @@ Therefore, only a brief table listing them is provided here.
 | `catch_fmap`        | direct, flow | +   | +         | +   | +         |
 | `catch_fmap_result` | direct, flow |     | +         |     | +         |
 | `catch_bind`        | direct, flow | +   | +         | +   | +         |
-| `ensure `           | direct, flow | +   | +         | +   | +         |
+| `ensure_soft`       | direct, flow | +   | +         | +   | +         |
 | `ap`                | direct, flow | +   | +         | +   | +         |
 | `lift2`             | lift         | +   | +         | +   | +         |
 | `lift3`             | lift         | +   | +         | +   | +         |
@@ -816,18 +816,19 @@ Therefore, only a brief table listing them is provided here.
 
 ### General remarks
 Since the effects here have built‑in error handlers and finalizers, it’s worth mentioning some of their features:
-- If an exception is thrown that is not a subtype of `Exception`, execution will stop immediately,  and the `catch_` and `ensure` steps will not be triggered.  
+- If an exception is thrown that is not a subtype of `Exception`, execution will stop immediately,  and the `catch_` and `ensure_soft` steps will not be triggered.  
   This remains true even if you set a handler for this exception in the `catch_`, despite the types.  
   However, for `asyncio.CancelledError` everything works differently in asynchronous case.  
-  `ensure` will be executed when an `asyncio.CancelledError` is thrown.  
-- The error in `ensure` works similarly to that in `finally` — it replaces the current error (if any) and adds it to its own context.  
+  `ensure_soft` will be executed when an `asyncio.CancelledError` is thrown.  
+- The error in `ensure_soft` works similarly to that in `finally` — it replaces the current error (if any) and adds it to its own context.  
   But if the current error is `asyncio.CancelledError`, then it is not replaced.  
   Because the cancellation signal is considered to be of higher priority.
-- If you catch `asyncio.CancelledError` in `catch_` methods, despite the types in the signature and the fact that this is not recommended, the error will actually be caught.
-- Be careful with the scopes for the `catch_` and `ensure` methods, for example:
+- Exception handlers are configured to handle subclasses of Exception, which is indicated by the types.  
+  However, if you catch `asyncio.CancelledError` in `catch_` methods, despite the types in the signature and the fact that this is not recommended, the error will actually be caught.
+- Be careful with the scopes for the `catch_` and `ensure_soft` methods, for example:
 ```python
 from mafunca.eff import delay
-from mafunca.eff.flow import bind, catch_fmap, ensure
+from mafunca.eff.flow import bind, catch_fmap, ensure_soft
 from mafunca.flow import flow
 
 effect = flow(
@@ -835,19 +836,19 @@ effect = flow(
   bind(lambda src: flow(
       delay(lambda: handle_resource(src)),
       catch_fmap(SomeDomainError, catcher),
-      ensure(delay(lambda: close(src)))
+      ensure_soft(delay(lambda: close(src)))
   )),
-  ensure(delay(logging))
+  ensure_soft(delay(logging))
 )
 ```
-  Here, `ensure(delay(logging))` will always be executed.  
-  But if an error occurs in `open_resource`, then the `catch_map` and `ensure` inside the `bind` will not be executed.  
+  Here, `ensure_soft(delay(logging))` will always be executed.  
+  But if an error occurs in `open_resource`, then the `catch_map` and `ensure_soft` inside the `bind` will not be executed.  
   Because the top-level effect, which includes `open_resource`, consists of three steps:  
-- delay(open_resource)
-- a function in bind
-- ensure(delay_logging)
+- `delay(open_resource)`
+- a function inside `bind`
+- `ensure_soft(delay_logging)`
 
-While `catch_` and `ensure` inside `bind` are related to an internal effect and are limited to its scope.  
+While `catch_` and `ensure_soft` nodes inside `bind` are related to an internal effect and are limited to its scope.  
 
 Other remarks:
 - Effect monads are stack-safe, so you can build chains of any length and nesting. 

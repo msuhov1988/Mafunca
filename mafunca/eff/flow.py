@@ -52,8 +52,15 @@ def catch_bind(exc_type: type[Exc], catcher: Callable[[Exc], Eff[A]]) -> Callabl
     return catch_bind_inner
 
 
-def ensure(finalizer: Eff[None]) -> Callable[[Eff[A]], Eff[A]]:
+def ensure_soft(finalizer: Eff[None]) -> Callable[[Eff[A]], Eff[A]]:
+    """
+        'Soft' finalizer.
 
+        It behaves like `finally` in all normal execution scenarios:
+
+        - successful completion
+        - exceptions that are subclasses of `Exception`
+    """
     def ensure_inner(effect: Eff[A]) -> Eff[A]:
         return _Ensure(effect, finalizer)
 
