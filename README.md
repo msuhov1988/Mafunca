@@ -838,6 +838,7 @@ effect = flow(
 While `catch_` and `ensure` inside `bind` are related to an internal effect and are limited to its scope.  
 
 Thus, `catch` and `ensure` can be considered as analogues of the built‑in `except` and `finally` in the following scenarios:
+- normal execution flow without errors
 - ordinary errors during execution
 - standard cancellation based on asyncio.CancelledError
 
