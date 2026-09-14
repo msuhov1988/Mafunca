@@ -11,6 +11,7 @@
 - ### describe side effects lazily, so programs can be composed without performing them immediately
 ### The library is dependency-free and provides a stack-safe effect system with explicit execution, contract validation and deliberately separate synchronous and asynchronous runtimes.
 ### The effect system also supports composable error handling, scoped finalization and retry semantics.
+### Breaking changes are still possible...
 
 ### [Installiation](#installation)
 - [Install mafunca](#install-mafunca)
@@ -600,8 +601,19 @@ The effects implemented here have a number of features:
   Functions linking the steps must be synchronous
 - The ability to configure retries for a specific node in the chain
 - The ability to asynchronously perform blocking IO in a separate thread (for async effects only)
-- Built‑in exception handlers and finalizers  
-  IMPORTANT: these are not 100% equivalent to the built‑in `except` and `finally`. Details in the general remarks.
+- Built‑in exception handlers
+- Built-in finalizers. Let’s call them “soft”  
+  It behaves like `finally` in all normal execution scenarios supported by this library:
+  - successful completion
+  - exceptions that are subclasses of `Exception`
+  - standart asynchronous cancellation via `asyncio.CancelledError`  
+  
+  The only difference from built-in `finally` is that these finalizers is not guaranted to run
+  when execution is interrupted by an error that is not subclass of `Exception`, except for `asyncio.CancelledError`
+  in asynchronous effects.
+
+
+  
 
 Now let's move on to considering types and constructions.  
 The approach is similar:  
@@ -836,13 +848,6 @@ effect = flow(
 - ensure(delay_logging)
 
 While `catch_` and `ensure` inside `bind` are related to an internal effect and are limited to its scope.  
-
-Thus, `catch` and `ensure` can be considered as analogues of the built‑in `except` and `finally` in the following scenarios:
-- normal execution flow without errors
-- ordinary errors during execution
-- standard cancellation based on asyncio.CancelledError
-
-  
 
 Other remarks:
 - Effect monads are stack-safe, so you can build chains of any length and nesting. 
