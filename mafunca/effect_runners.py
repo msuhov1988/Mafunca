@@ -182,10 +182,15 @@ def _enter_ensure_scope(finalizer: Eff[None] | Aff[None], stack_of_scopes: list[
 
 def _leave_ensure_scope(stack_of_scopes: list[_Scope]) -> _Scope:
     deleted_ensure_scope = stack_of_scopes.pop()
-    parent_scope = stack_of_scopes[-1]
-    # errors that are not subclasses of Exception are not replaced by finalizer errors
-    if parent_scope.error is None or isinstance(parent_scope.error, Exception):
-        _set_new_primary_error(scope=parent_scope, new_error=deleted_ensure_scope.error)
+    parent_scope = stack_of_scopes[-1]           
+    # asyncio.CancelledError is not replaced; instead, the error in the finalizer is added to the context
+    if isinstance(parent_scope.error, asyncio.CancelledError) and deleted_ensure_scope.error:
+        parent_scope.error.__context__ = deleted_ensure_scope.error
+        parent_scope.error.__cause__ = None
+        parent_scope.error.__suppress_context__ = False 
+    # otherwise, the finalizer error replaces the current one
+    elif parent_scope.error is None or isinstance(parent_scope.error, Exception):
+        _set_new_primary_error(scope=parent_scope, new_error=deleted_ensure_scope.error)     
     return parent_scope
 
 
