@@ -336,9 +336,9 @@ class TestEffectSync(unittest.TestCase):
         eff = flow(ef.delay(crash), ef_flow.ensure_soft(ef.delay(mark)))
         with self.assertRaises(Crash):
             run(eff)
-        self.assertEqual(glb, 0)
+        self.assertEqual(glb, 1)
 
-    def test_base_exception_skips_catch_even_with_matching_handler(self):    
+    def test_base_exception_catched_by_catch_method(self):    
         log = []
 
         def crash():
@@ -347,10 +347,9 @@ class TestEffectSync(unittest.TestCase):
         eff = flow(
             ef.delay(crash),
             ef_flow.catch_fmap(Crash, lambda _: log.append("caught") or 0),  # type: ignore # noqa
-        )
-        with self.assertRaises(Crash):
-            run(eff)
-        self.assertEqual(log, [])
+        )        
+        run(eff)
+        self.assertEqual(log, ["caught"])
 
     def test_ensure_order_nested_scopes(self):
         log: list[str] = []

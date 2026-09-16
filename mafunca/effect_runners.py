@@ -36,20 +36,20 @@ def _raise_and_wrap(error: Exception) -> Fail[Exception]:
         return Fail(exc)
 
 
-def _sync_perform(fn: Callable[Args, A], *args: Args.args, **kwargs: Args.kwargs) -> Result[A, Exception]:
+def _sync_perform(fn: Callable[Args, A], *args: Args.args, **kwargs: Args.kwargs) -> Result[A, BaseException]:
     try:
         return Success(fn(*args, **kwargs))
-    except Exception as err:
+    except BaseException as err:
         return Fail(err)
 
 
-def _sync_perform_with_retry(node: _Retry[A], previous_result: object, is_assigned: bool) -> Result[A, Exception]:
+def _sync_perform_with_retry(node: _Retry[A], previous_result: object, is_assigned: bool) -> Result[A, BaseException]:
     value, either_result = None, None
     for attempt in range(1, node.total_attempts + 1):
         either_result = _sync_perform(node.thunk)
         if isinstance(either_result, Success):
             value = either_result.value
-            either_retry_flag: Result[bool, Exception] = _sync_perform(node.retry_on_result, value)
+            either_retry_flag = _sync_perform(node.retry_on_result, value)
             if isinstance(either_retry_flag, Fail):
                 return either_retry_flag
             if not either_retry_flag.value:
@@ -59,7 +59,7 @@ def _sync_perform_with_retry(node: _Retry[A], previous_result: object, is_assign
                 return either_result
 
         if attempt < node.total_attempts:
-            either_pause: Result[int | float, Exception] = _sync_perform(node.pause_seconds_between, attempt)
+            either_pause = _sync_perform(node.pause_seconds_between, attempt)
             if isinstance(either_pause, Fail):
                 return either_pause
             pause = either_pause.value
@@ -68,7 +68,8 @@ def _sync_perform_with_retry(node: _Retry[A], previous_result: object, is_assign
             sleep(pause)
 
     if isinstance(either_result, Fail):
-        retry_error = RetryByExceptionError(previous_result, is_assigned, either_result.error, node.step_name)
+        error = cast(Exception, either_result.error)  # retry on BaseException is prohibited at the type level. Only on Exception  
+        retry_error = RetryByExceptionError(previous_result, is_assigned, error, node.step_name)
     else:
         retry_error = RetryByValueError(previous_result, is_assigned, value, node.step_name)
     return _raise_and_wrap(retry_error)
@@ -77,22 +78,22 @@ def _sync_perform_with_retry(node: _Retry[A], previous_result: object, is_assign
 async def _async_perform(
         fn: Callable[[], Awaitable[A]],
         wait_seconds: int | float | None
-) -> Result[A, Exception | asyncio.CancelledError]:
+) -> Result[A, BaseException]:
     try:
         if wait_seconds is None:
             return Success(await fn())
         else:
             async with asyncio.timeout(delay=wait_seconds):
                 return Success(await fn())
-    except (Exception, asyncio.CancelledError) as err:
+    except BaseException as err:
         return Fail(err)
 
 
-async def _async_perform_thread(fn: Callable[[], A]) -> Result[A, Exception | asyncio.CancelledError]:
+async def _async_perform_thread(fn: Callable[[], A]) -> Result[A, BaseException]:
     try:
         result = await asyncio.to_thread(fn)
         return Success(result)
-    except (Exception, asyncio.CancelledError) as err:
+    except BaseException as err:
         return Fail(err)
 
 
@@ -100,13 +101,13 @@ async def _async_perform_with_retry(
         node: _RetryAsync[A],
         previous_result: object,
         is_assigned: bool
-) -> Result[A, Exception | asyncio.CancelledError]:
+) -> Result[A, BaseException]:
     value, either_result = None, None
     for attempt in range(1, node.total_attempts + 1):
         either_result = await _async_perform(node.thunk, node.wait_seconds_on_attempt)
         if isinstance(either_result, Success):
             value = either_result.value
-            either_retry_flag: Result[bool, Exception] = _sync_perform(node.retry_on_result, value)
+            either_retry_flag = _sync_perform(node.retry_on_result, value)
             if isinstance(either_retry_flag, Fail):
                 return either_retry_flag
             if not either_retry_flag.value:
@@ -116,7 +117,7 @@ async def _async_perform_with_retry(
                 return either_result
 
         if attempt < node.total_attempts:
-            either_pause: Result[int | float, Exception] = _sync_perform(node.pause_seconds_between, attempt)
+            either_pause = _sync_perform(node.pause_seconds_between, attempt)
             if isinstance(either_pause, Fail):
                 return either_pause
             pause = either_pause.value
@@ -124,11 +125,11 @@ async def _async_perform_with_retry(
                 return _raise_and_wrap(RetryBadPauseError(node.step_name))
             try:
                 await asyncio.sleep(pause)
-            except asyncio.CancelledError as err:
+            except BaseException as err:
                 return Fail(err)
 
     if isinstance(either_result, Fail): 
-        error = cast(Exception, either_result.error)  # retry on asyncio.CancelledError is prohibited at the type level.       
+        error = cast(Exception, either_result.error)  # retry on BaseException is prohibited at the type level. Only on Exception      
         retry_error = RetryByExceptionError(previous_result, is_assigned, error, node.step_name)
     else:
         retry_error = RetryByValueError(previous_result, is_assigned, value, node.step_name)

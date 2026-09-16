@@ -384,9 +384,9 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
         eff = flow(af.delay(crash), af_flow.ensure_soft(af.delay(mark)))
         with self.assertRaises(Crash):
             await run_async(eff)
-        self.assertEqual(glb, 0)
+        self.assertEqual(glb, 1)
 
-    async def test_base_exception_skips_catch_even_with_matching_handler(self):    
+    async def test_base_exception_catched_by_catch_method(self):    
         log = []
 
         async def crash():
@@ -395,10 +395,9 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
         eff = flow(
             af.delay(crash),
             af_flow.catch_fmap(Crash, lambda _: log.append("caught") or 0),  # type: ignore # noqa
-        )
-        with self.assertRaises(Crash):
-            await run_async(eff)
-        self.assertEqual(log, [])
+        )        
+        await run_async(eff)
+        self.assertEqual(log, ["caught"])
 
     async def test_ensure_order_nested_scopes(self):
         log: list[str] = []

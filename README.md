@@ -603,16 +603,9 @@ The effects implemented here have a number of features:
 - The ability to asynchronously perform blocking IO in a separate thread (for async effects only)
 - Built‑in exception handlers
 - Built-in finalizers. Let’s call them “soft”  
-  It behaves like `finally` in all normal execution scenarios supported by this library:
-  - successful completion
-  - exceptions that are subclasses of `Exception`
-  - standard asynchronous cancellation via `asyncio.CancelledError`  
-  
-  The only difference from built-in `finally` is that these finalizers is not guaranteed to run
-  when execution is interrupted by an error that is not subclass of `Exception`, except for `asyncio.CancelledError`
-  in asynchronous effects.
-
-
+  The only difference from a regular `finally` block is that a soft finalizer is not guaranteed to run
+  if execution is interrupted by interpreter-level exceptions, most notably `KeyboardInterrupt`, which may be raised
+  at effectively arbitrary points during Python execution.
   
 
 Now let's move on to considering types and constructions.  
@@ -816,15 +809,13 @@ Therefore, only a brief table listing them is provided here.
 
 ### General remarks
 Since the effects here have built‑in error handlers and finalizers, it’s worth mentioning some of their features:
-- If an exception is thrown that is not a subtype of `Exception`, execution will stop immediately,  and the `catch_` and `ensure_soft` steps will not be triggered.  
-  This remains true even if you set a handler for this exception in the `catch_`, despite the types.  
-  However, for `asyncio.CancelledError` everything works differently in asynchronous case.  
-  `ensure_soft` will be executed when an `asyncio.CancelledError` is thrown.  
+- As mentioned above, the execution of `ensure_soft` is not guaranteed for interruptions like `KeyboardInterrupt`
 - The error in `ensure_soft` works similarly to that in `finally` — it replaces the current error (if any) and adds it to its own context.  
   But if the current error is `asyncio.CancelledError`, then it is not replaced.  
   Because the cancellation signal is considered to be of higher priority.
-- Exception handlers are configured to handle subclasses of Exception, which is indicated by the types.  
-  However, if you catch `asyncio.CancelledError` in `catch_` methods, despite the types in the signature and the fact that this is not recommended, the error will actually be caught.
+- Exception handlers are configured to handle `Exception` subclasses.  
+  But this is a contract only at the level of type hints.  
+  Thus, if, despite the types, you configure the handling of exceptions that are not subclasses of `Exception`, they will actually be caught.
 - Be careful with the scopes for the `catch_` and `ensure_soft` methods, for example:
 ```python
 from mafunca.eff import delay
