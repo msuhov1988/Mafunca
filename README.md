@@ -814,8 +814,9 @@ Since the effects here have built‑in error handlers and finalizers, it’s wor
   But if the current error is `asyncio.CancelledError`, then it is not replaced.  
   Because the cancellation signal is considered to be of higher priority.
 - Exception handlers are configured to handle `Exception` subclasses.  
-  But this is a contract only at the level of type hints.  
-  Thus, if, despite the types, you configure the handling of exceptions that are not subclasses of `Exception`, they will actually be caught.
+  However, due to the contravariance of the `Exc` argument in the `Callable[[Exc], A]` type, you can pass a function that catches any exception.
+  Don’t forget that this is not recommended. Especially with `asyncio.CancelledError`.
+- Execution of exception handlers is also not guaranteed for interruptions like `KeyboardInterrupt`
 - Be careful with the scopes for the `catch_` and `ensure_soft` methods, for example:
 ```python
 from mafunca.eff import delay

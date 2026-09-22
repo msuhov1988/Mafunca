@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import TypeVar
+from typing import TypeVar, Never
 
 from mafunca._lazy_support import panic_on_coroutine
 from mafunca.result.build import Result, Success, Fail
@@ -101,15 +101,8 @@ def catch_bind(
     return catch_bind_inner
 
 
-def ensure_soft(finalizer: Eff[None]) -> Callable[[EffResult[A, E]], EffResult[A, E]]:
-    """
-        'Soft' finalizer.
-
-        It behaves like `finally` in all normal execution scenarios:
-
-        - successful completion
-        - exceptions that are subclasses of `Exception`
-    """
+def ensure_soft(finalizer: Eff[None] | EffResult[None, Never]) -> Callable[[EffResult[A, E]], EffResult[A, E]]:
+    
     def ensure_inner(effect: EffResult[A, E]) -> EffResult[A, E]:
         return _Ensure(effect, finalizer)
 

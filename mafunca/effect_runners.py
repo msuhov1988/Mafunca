@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from collections.abc import Callable, Awaitable
 from time import sleep
 import asyncio
-from typing import TypeVar, TypeAlias, ParamSpec, Any, cast
+from typing import TypeVar, TypeAlias, ParamSpec, Never, Any, cast
 
 from mafunca.common.exceptions import RetryByExceptionError, RetryByValueError, RetryBadPauseError, MonadError
 from mafunca.result.build import Success, Fail, Result
@@ -19,9 +19,7 @@ __all__ = ["run", "run_safe", "run_async", "run_safe_async"]
 
 A = TypeVar("A")
 B = TypeVar("B")
-
 E = TypeVar("E")
-Exc = TypeVar("Exc", bound=Exception)
 
 Args = ParamSpec('Args')
 
@@ -30,6 +28,7 @@ _CONTRACT_VIOLATION = 'check all methods that require a specific type of monad t
 
 
 def _raise_and_wrap(error: Exception) -> Fail[Exception]:
+    """Add stack unwinding for errors related to exhausted retries"""
     try:
         raise error
     except Exception as exc:
@@ -138,18 +137,21 @@ async def _async_perform_with_retry(
 
 @dataclass(frozen=True, slots=True)
 class _FrameContinuation:
-    continuation: Callable[[Any], Any]
+    continuation: Callable[[Any], Eff[Any] | Aff[Any]]
 
 
 @dataclass(frozen=True, slots=True)
 class _FrameCatch:
-    exc_type: Any
-    catcher: Callable[[Any], Any]
+    exc_type: type[Any]
+    catcher: Callable[[Any], Eff[Any] | Aff[Any]]
+
+
+_FinalizerOutput: TypeAlias = None | Result[None, Never]
 
 
 @dataclass(frozen=True, slots=True)
 class _FrameEnsure:
-    finalizer: Eff[None] | Aff[None]
+    finalizer: Eff[_FinalizerOutput] | Aff[_FinalizerOutput]
 
 
 _FrameType: TypeAlias = _FrameContinuation | _FrameCatch | _FrameEnsure
@@ -175,7 +177,7 @@ def _set_new_primary_error(scope: _Scope, new_error: BaseException | None) -> No
     scope.error = new_error
 
 
-def _enter_ensure_scope(finalizer: Eff[None] | Aff[None], stack_of_scopes: list[_Scope]) -> _Scope:
+def _enter_ensure_scope(finalizer: Eff[_FinalizerOutput] | Aff[_FinalizerOutput], stack_of_scopes: list[_Scope]) -> _Scope:
     s = _Scope(finalizer)
     stack_of_scopes.append(s)
     return s
@@ -211,14 +213,17 @@ def run(effect: Eff[A]) -> A:
         if scope.error is None:
             node = scope.node
             if isinstance(node, _Bind):
+                node = cast(_Bind[Any, Any], node)
                 scope.frames.append(_FrameContinuation(continuation=node.continuation))
                 scope.node = node.current
 
             elif isinstance(node, _Catch):
+                node = cast(_Catch[Any, Any], node)
                 scope.frames.append(_FrameCatch(exc_type=node.exc_type, catcher=node.catcher))
                 scope.node = node.current
 
             elif isinstance(node, _Ensure):
+                node = cast(_Ensure[Any, _FinalizerOutput], node)
                 scope.frames.append(_FrameEnsure(finalizer=node.finalizer))
                 scope.node = node.current
 
@@ -293,14 +298,17 @@ async def run_async(effect: Aff[A]) -> A:
         if scope.error is None:
             node = scope.node
             if isinstance(node, _BindAsync):
+                node = cast(_BindAsync[Any, Any], node)
                 scope.frames.append(_FrameContinuation(continuation=node.continuation))
                 scope.node = node.current
 
             elif isinstance(node, _CatchAsync):
+                node = cast(_CatchAsync[Any, Any], node)
                 scope.frames.append(_FrameCatch(exc_type=node.exc_type, catcher=node.catcher))
                 scope.node = node.current
 
             elif isinstance(node, _EnsureAsync):
+                node = cast(_EnsureAsync[Any, _FinalizerOutput], node)
                 scope.frames.append(_FrameEnsure(finalizer=node.finalizer))
                 scope.node = node.current
 

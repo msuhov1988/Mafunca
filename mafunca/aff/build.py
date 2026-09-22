@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import inspect
 from collections.abc import Callable, Awaitable
-from typing import TypeVar, Generic, Any
+from typing import TypeVar, Generic
 
 from mafunca.common.exceptions import ValidationError
 from mafunca._lazy_support import panic_on_coroutine
@@ -20,7 +20,6 @@ A_co = TypeVar("A_co", covariant=True)
 A = TypeVar("A")
 B = TypeVar("B")
 Exc = TypeVar("Exc", bound=Exception)
-E = TypeVar("E")
 
 
 class Aff(Generic[A_co]):
@@ -96,22 +95,22 @@ class _RetryAsync(Generic[A], Aff[A]):
 
 
 @dataclass(frozen=True, slots=True, repr=True)
-class _BindAsync(Generic[B], Aff[B]):
-    current: Aff[Any]
-    continuation: Callable[[Any], Aff[B]]
+class _BindAsync(Generic[A, B], Aff[B]):
+    current: Aff[A]
+    continuation: Callable[[A], Aff[B]]
 
 
 @dataclass(frozen=True, slots=True, repr=True)
-class _CatchAsync(Generic[A], Aff[A]):
+class _CatchAsync(Generic[A, Exc], Aff[A]):
     current: Aff[A]
-    exc_type: type[Any]
-    catcher: Callable[[Any], Aff[A]]
+    exc_type: type[Exc]
+    catcher: Callable[[Exc], Aff[A]]
 
 
 @dataclass(frozen=True, slots=True, repr=True)
-class _EnsureAsync(Generic[A], Aff[A]):
+class _EnsureAsync(Generic[A, B], Aff[A]):
     current: Aff[A]
-    finalizer: Aff[None]
+    finalizer: Aff[B]
 
 
 def pure(value: A) -> Aff[A]:

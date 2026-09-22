@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import inspect
 from collections.abc import Callable
-from typing import TypeVar, Generic, Any
+from typing import TypeVar, Generic
 
 from mafunca.common.exceptions import ValidationError
 from mafunca._lazy_support import panic_on_coroutine
@@ -16,8 +16,9 @@ __all__ = [
 
 
 A_co = TypeVar("A_co", covariant=True)
-A = TypeVar("A", covariant=True)
+A = TypeVar("A")
 B = TypeVar("B")
+C = TypeVar("C")
 Exc = TypeVar("Exc", bound=Exception)
 
 
@@ -74,22 +75,29 @@ class _Retry(Generic[A], Eff[A]):
 
 
 @dataclass(frozen=True, slots=True, repr=True)
-class _Bind(Generic[B], Eff[B]):
-    current: Eff[Any]
-    continuation: Callable[[Any], Eff[B]]
+class _Bind(Generic[A, B], Eff[B]):
+    current: Eff[A]
+    continuation: Callable[[A], Eff[B]]
 
 
 @dataclass(frozen=True, slots=True, repr=True)
-class _Catch(Generic[A], Eff[A]):
+class _Catch(Generic[A, Exc], Eff[A]):
     current: Eff[A]
-    exc_type: Any
-    catcher: Callable[[Any], Eff[A]]
+    exc_type: type[Exc]
+    catcher: Callable[[Exc], Eff[A]]
 
 
 @dataclass(frozen=True, slots=True, repr=True)
-class _Ensure(Generic[A], Eff[A]):
+class _Ensure(Generic[A, B], Eff[A]):
     current: Eff[A]
-    finalizer: Eff[None]
+    finalizer: Eff[B]
+
+
+@dataclass(frozen=True, slots=True, repr=True)
+class _Bracket(Generic[A, B, C], Eff[B]):
+    acquire: Eff[A]
+    use: Callable[[A], Eff[B]]
+    release: Callable[[A], Eff[C]]
 
 
 def pure(value: A) -> Eff[A]:
@@ -138,3 +146,11 @@ def retry(
         retry_on_exceptions=retry_on_exceptions,
         step_name=step_name
     )
+
+
+def bracket(
+        acquire: Eff[A], 
+        use: Callable[[A], Eff[B]], 
+        release: Callable[[A], Eff[None]]
+) -> Eff[B]:
+    return _Bracket(acquire, use, release)

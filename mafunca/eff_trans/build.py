@@ -4,7 +4,8 @@ from typing import TypeVar, TypeAlias, Never
 from mafunca._lazy_support import panic_on_coroutine
 from mafunca.result.build import Result, Success, Fail
 from mafunca.eff.build import Eff
-from mafunca.eff.build import _Pure, _Delay, _Retry, _Bind  # type: ignore # noqa
+from mafunca.eff.build import _Pure, _Delay, _Retry, _Bind, _Bracket  # type: ignore # noqa
+import mafunca.result.direct as rd
 
 
 __all__ = [
@@ -91,4 +92,25 @@ def retry(
         retry_on_result=retry_on_result,
         retry_on_exceptions=retry_on_exceptions,
         step_name=step_name
+    )
+
+
+def bracket(
+        acquire: EffResult[S, F], 
+        use: Callable[[S], EffResult[R, F]], 
+        release: Callable[[S], Eff[None] | EffResult[None, Never]]
+) -> EffResult[R, F]:
+
+    def use_continuation(arg: Result[S, F]) -> EffResult[R, F]:
+        res = rd.fmap(arg, use)
+        return rd.fold(res, on_success=lambda s: s, on_fail=lambda e: _Pure(Fail(e)))
+
+    def release_continuation(arg: Result[S, F]) -> Eff[None] | EffResult[None, F]:
+        res = rd.fmap(arg, release)
+        return rd.fold(res, on_success=lambda s: s, on_fail=lambda e: _Pure(Fail(e)))
+        
+    return _Bracket(
+        acquire, 
+        use_continuation, 
+        release_continuation,
     )

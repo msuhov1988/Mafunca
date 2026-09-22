@@ -54,16 +54,7 @@ def catch_bind(effect: Aff[A], exc_type: type[Exc], catcher: Callable[[Exc], Aff
     return _CatchAsync(effect, exc_type, catcher)
 
 
-def ensure_soft(effect: Aff[A], finalizer: Aff[None]) -> Aff[A]:
-    """
-        'Soft' finalizer.
-
-        It behaves like `finally` in all normal execution scenarios:
-
-        - successful completion
-        - exceptions that are subclasses of `Exception`
-        - standard asynchronous cancellation via `asyncio.CancelledError`
-    """
+def ensure_soft(effect: Aff[A], finalizer: Aff[None]) -> Aff[A]:    
     return _EnsureAsync(effect, finalizer)
 
 

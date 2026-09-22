@@ -65,26 +65,18 @@ def catch_bind(exc_type: type[Exc], catcher: Callable[[Exc], Aff[A]]) -> Callabl
     """
     panic_on_coroutine(catcher, Aff.__name__, 'catch_bind')
 
-    def cathc_bind_inner(effect: Aff[A]) -> Aff[A]:
+    def catch_bind_inner(effect: Aff[A]) -> Aff[A]:
         return _CatchAsync(effect, exc_type, catcher)
 
-    return cathc_bind_inner
+    return catch_bind_inner
 
 
 def ensure_soft(finalizer: Aff[None]) -> Callable[[Aff[A]], Aff[A]]:
-    """
-        'Soft' finalizer.
-
-        It behaves like `finally` in all normal execution scenarios:
-
-        - successful completion
-        - exceptions that are subclasses of `Exception`
-        - standard asynchronous cancellation via `asyncio.CancelledError`
-    """
-    def ensure_inner(effect: Aff[A])  -> Aff[A]:
+    
+    def ensure_soft_inner(effect: Aff[A])  -> Aff[A]:
         return _EnsureAsync(effect, finalizer)
 
-    return ensure_inner
+    return ensure_soft_inner
 
 
 def ap(effect: Aff[A]) -> Callable[[Aff[Callable[[A], B]]], Aff[B]]:
