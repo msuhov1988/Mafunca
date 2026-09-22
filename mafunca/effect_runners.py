@@ -2,16 +2,16 @@ from dataclasses import dataclass, field
 from collections.abc import Callable, Awaitable
 from time import sleep
 import asyncio
-from typing import TypeVar, TypeAlias, ParamSpec, Never, Any, cast
+from typing import TypeVar, TypeAlias, ParamSpec, Any, cast
 
 from mafunca.common.exceptions import RetryByExceptionError, RetryByValueError, RetryBadPauseError, MonadError
 from mafunca.result.build import Success, Fail, Result
 from mafunca.eff.build import Eff
 from mafunca.eff.build import _Pure, _Delay, _Retry  # type: ignore # noqa
-from mafunca.eff.build import _Bind, _Catch, _Ensure  # type: ignore # noqa
+from mafunca.eff.build import _Bind, _Catch, _Ensure, _Bracket  # type: ignore # noqa
 from mafunca.aff.build import Aff
 from mafunca.aff.build import _PureAsync, _DelayAsync, _DelayThreadAsync, _RetryAsync  # type: ignore # noqa
-from mafunca.aff.build import _BindAsync, _CatchAsync, _EnsureAsync  # type: ignore # noqa
+from mafunca.aff.build import _BindAsync, _CatchAsync, _EnsureAsync, _BracketAsync  # type: ignore # noqa
 
 
 __all__ = ["run", "run_safe", "run_async", "run_safe_async"]
@@ -146,7 +146,7 @@ class _FrameCatch:
     catcher: Callable[[Any], Eff[Any] | Aff[Any]]
 
 
-_FinalizerOutput: TypeAlias = None | Result[None, Never]
+_FinalizerOutput: TypeAlias = None | Result[None, Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,7 +154,17 @@ class _FrameEnsure:
     finalizer: Eff[_FinalizerOutput] | Aff[_FinalizerOutput]
 
 
-_FrameType: TypeAlias = _FrameContinuation | _FrameCatch | _FrameEnsure
+@dataclass(frozen=True, slots=True)
+class _FrameBracketUse:
+    use: Callable[[Any], Eff[Any] | Aff[Any]]
+
+
+@dataclass(frozen=True, slots=True)
+class _FrameBracketRelease:
+    release: Callable[[Any], Eff[_FinalizerOutput] | Aff[_FinalizerOutput]]
+
+
+_FrameType: TypeAlias = _FrameContinuation | _FrameCatch | _FrameEnsure | _FrameBracketUse | _FrameBracketRelease
 
 
 @dataclass(slots=True)
@@ -166,11 +176,21 @@ class _Scope:
     frames: list[_FrameType] = field(default_factory=list[_FrameType])
 
 
-def _set_new_primary_error(scope: _Scope, new_error: BaseException | None) -> None:
+def _set_new_primary_error(
+        scope: _Scope,
+        new_error: BaseException | None,
+        not_replace_cancelled: bool = False
+) -> None:
     old_error = scope.error
     if old_error is new_error or new_error is None:
         return
     if old_error is not None:
+        if not_replace_cancelled and isinstance(old_error, asyncio.CancelledError):
+            old_error.__context__ = new_error
+            old_error.__cause__ = None
+            old_error.__suppress_context__ = False
+            scope.error = old_error
+            return   
         new_error.__context__ = old_error
         new_error.__cause__ = None
         new_error.__suppress_context__ = False
@@ -183,18 +203,23 @@ def _enter_ensure_scope(finalizer: Eff[_FinalizerOutput] | Aff[_FinalizerOutput]
     return s
 
 
-def _leave_ensure_scope(stack_of_scopes: list[_Scope]) -> _Scope:
+def _leave_ensure_scope(stack_of_scopes: list[_Scope], not_replace_cancelled: bool = False) -> _Scope:
     deleted_ensure_scope = stack_of_scopes.pop()
-    parent_scope = stack_of_scopes[-1]           
-    # asyncio.CancelledError is not replaced; instead, the error in the finalizer is added to the context
-    if isinstance(parent_scope.error, asyncio.CancelledError) and deleted_ensure_scope.error:
-        parent_scope.error.__context__ = deleted_ensure_scope.error
-        parent_scope.error.__cause__ = None
-        parent_scope.error.__suppress_context__ = False 
-    # otherwise, the finalizer error replaces the current one
-    elif parent_scope.error is None or isinstance(parent_scope.error, Exception):
-        _set_new_primary_error(scope=parent_scope, new_error=deleted_ensure_scope.error)     
+    parent_scope = stack_of_scopes[-1] 
+    _set_new_primary_error(
+        scope=parent_scope, 
+        new_error=deleted_ensure_scope.error, 
+        not_replace_cancelled=not_replace_cancelled
+        )   
     return parent_scope
+
+
+@dataclass(frozen=True, slots=True)
+class _Empty:
+    pass
+
+
+_EMPTY = _Empty()
 
 
 #  execution follows two basic branches: no errors, and there are errors
@@ -209,9 +234,10 @@ def run(effect: Eff[A]) -> A:
     """
     scope = _Scope(effect)
     stack_of_scopes = [scope]
+    bracket_acquires: list[Any] = []
     while True:
         if scope.error is None:
-            node = scope.node
+            node = scope.node            
             if isinstance(node, _Bind):
                 node = cast(_Bind[Any, Any], node)
                 scope.frames.append(_FrameContinuation(continuation=node.continuation))
@@ -226,6 +252,13 @@ def run(effect: Eff[A]) -> A:
                 node = cast(_Ensure[Any, _FinalizerOutput], node)
                 scope.frames.append(_FrameEnsure(finalizer=node.finalizer))
                 scope.node = node.current
+
+            elif isinstance(node, _Bracket):
+                node = cast(_Bracket[Any, Any, Any], node)
+                scope.frames.append(_FrameBracketRelease(release=node.release))
+                scope.frames.append(_FrameBracketUse(use=node.use))
+                bracket_acquires.append(_EMPTY)
+                scope.node = node.acquire
 
             elif isinstance(node, _Delay):
                 r = _sync_perform(node.thunk)
@@ -249,6 +282,17 @@ def run(effect: Eff[A]) -> A:
                         scope.node, scope.error = (r.value, scope.error) if isinstance(r, Success) else (node, r.error)
                     elif isinstance(frame, _FrameEnsure):
                         scope = _enter_ensure_scope(finalizer=frame.finalizer, stack_of_scopes=stack_of_scopes)
+                    elif isinstance(frame, _FrameBracketUse):
+                        bracket_acquires[-1] = scope.result
+                        r = _sync_perform(frame.use, scope.result) 
+                        scope.node, scope.error = (r.value, scope.error) if isinstance(r, Success) else (node, r.error)  
+                    elif isinstance(frame, _FrameBracketRelease):
+                        resource = bracket_acquires.pop()                        
+                        r = _sync_perform(frame.release, resource) 
+                        if isinstance(r, Success):
+                            scope = _enter_ensure_scope(finalizer=r.value, stack_of_scopes=stack_of_scopes)
+                        else:
+                            scope.error = r.error
 
             else:
                 raise MonadError(monad=type(effect).__name__, method='run', message=_CONTRACT_VIOLATION)
@@ -269,6 +313,14 @@ def run(effect: Eff[A]) -> A:
                         _set_new_primary_error(scope=scope, new_error=r.error)
                 elif isinstance(frame, _FrameEnsure):
                     scope = _enter_ensure_scope(finalizer=frame.finalizer, stack_of_scopes=stack_of_scopes)
+                elif isinstance(frame, _FrameBracketRelease):
+                    resource = bracket_acquires.pop()
+                    if resource is not _EMPTY:
+                        r = _sync_perform(frame.release, resource) 
+                        if isinstance(r, Success):
+                            scope = _enter_ensure_scope(finalizer=r.value, stack_of_scopes=stack_of_scopes)
+                        else:
+                            _set_new_primary_error(scope=scope, new_error=r.error)   
 
 
 def run_safe(effect: Eff[A]) -> Result[A, Exception]:
@@ -294,6 +346,7 @@ async def run_async(effect: Aff[A]) -> A:
     """
     scope = _Scope(effect)
     stack_of_scopes = [scope]
+    bracket_acquires: list[Any] = []
     while True:
         if scope.error is None:
             node = scope.node
@@ -312,6 +365,13 @@ async def run_async(effect: Aff[A]) -> A:
                 scope.frames.append(_FrameEnsure(finalizer=node.finalizer))
                 scope.node = node.current
 
+            elif isinstance(node, _BracketAsync):
+                node = cast(_BracketAsync[Any, Any, Any], node)
+                scope.frames.append(_FrameBracketRelease(release=node.release))
+                scope.frames.append(_FrameBracketUse(use=node.use))
+                bracket_acquires.append(_EMPTY)
+                scope.node = node.acquire
+
             elif isinstance(node, _DelayAsync):
                 r = await _async_perform(node.thunk, wait_seconds=node.wait_seconds)
                 scope.node, scope.error = (_PureAsync(r.value), scope.error) if isinstance(r, Success) else (node, r.error)
@@ -328,7 +388,7 @@ async def run_async(effect: Aff[A]) -> A:
                 scope.result, scope.is_assigned = node.value, True
                 if not scope.frames:
                     if len(stack_of_scopes) > 1:
-                        scope = _leave_ensure_scope(stack_of_scopes=stack_of_scopes)
+                        scope = _leave_ensure_scope(stack_of_scopes=stack_of_scopes, not_replace_cancelled=True)
                     else:
                         return scope.result
                 else:
@@ -338,6 +398,17 @@ async def run_async(effect: Aff[A]) -> A:
                         scope.node, scope.error = (r.value, scope.error) if isinstance(r, Success) else (node, r.error)
                     elif isinstance(frame, _FrameEnsure):
                         scope = _enter_ensure_scope(finalizer=frame.finalizer, stack_of_scopes=stack_of_scopes)
+                    elif isinstance(frame, _FrameBracketUse):
+                        bracket_acquires[-1] = scope.result
+                        r = _sync_perform(frame.use, scope.result) 
+                        scope.node, scope.error = (r.value, scope.error) if isinstance(r, Success) else (node, r.error)  
+                    elif isinstance(frame, _FrameBracketRelease):
+                        resource = bracket_acquires.pop()                        
+                        r = _sync_perform(frame.release, resource) 
+                        if isinstance(r, Success):
+                            scope = _enter_ensure_scope(finalizer=r.value, stack_of_scopes=stack_of_scopes)
+                        else:
+                            scope.error = r.error
 
             else:
                 raise MonadError(monad=type(effect).__name__, method='run_async', message=_CONTRACT_VIOLATION)
@@ -345,7 +416,7 @@ async def run_async(effect: Aff[A]) -> A:
         else:
             if not scope.frames:
                 if len(stack_of_scopes) > 1:
-                    scope = _leave_ensure_scope(stack_of_scopes=stack_of_scopes)
+                    scope = _leave_ensure_scope(stack_of_scopes=stack_of_scopes, not_replace_cancelled=True)
                 else:
                     raise scope.error
             else:
@@ -358,6 +429,14 @@ async def run_async(effect: Aff[A]) -> A:
                         _set_new_primary_error(scope=scope, new_error=r.error)
                 elif isinstance(frame, _FrameEnsure):
                     scope = _enter_ensure_scope(finalizer=frame.finalizer, stack_of_scopes=stack_of_scopes)
+                elif isinstance(frame, _FrameBracketRelease):
+                    resource = bracket_acquires.pop()
+                    if resource is not _EMPTY:
+                        r = _sync_perform(frame.release, resource) 
+                        if isinstance(r, Success):
+                            scope = _enter_ensure_scope(finalizer=r.value, stack_of_scopes=stack_of_scopes)
+                        else:
+                            _set_new_primary_error(scope=scope, new_error=r.error, not_replace_cancelled=True)
 
 
 async def run_safe_async(effect: Aff[A]) -> Result[A, Exception]:

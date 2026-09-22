@@ -2,14 +2,14 @@ from collections.abc import Callable
 from typing import TypeVar
 
 from mafunca.aff.build import Aff
-from mafunca.aff.build import _PureAsync, _BindAsync, _CatchAsync, _EnsureAsync  # type: ignore # noqa
+from mafunca.aff.build import _PureAsync, _BindAsync, _CatchAsync, _EnsureAsync, _BracketAsync  # type: ignore # noqa
 import mafunca.aff.direct as ad
 from mafunca._lazy_support import panic_on_coroutine
 
 
 A = TypeVar("A")
 B = TypeVar("B")
-Exc = TypeVar("Exc", bound=Exception)
+Exc = TypeVar("Exc", bound=BaseException)
 E = TypeVar("E")
 
 
@@ -31,10 +31,7 @@ def bind(fn: Callable[[A], Aff[B]]) -> Callable[[Aff[A]], Aff[B]]:
     """
         The function that returns the effect must be SYNCHRONOUS.
         Asynchrony is assumed inside the effect
-
-        :raises MonadError: coroutine functions are not allowed
     """
-    panic_on_coroutine(fn, Aff.__name__, 'bind')
 
     def bind_inner(effect: Aff[A])  -> Aff[B]:
         return _BindAsync(effect, fn)
@@ -59,11 +56,8 @@ def catch_fmap(exc_type: type[Exc], catcher: Callable[[Exc], A]) -> Callable[[Af
 def catch_bind(exc_type: type[Exc], catcher: Callable[[Exc], Aff[A]]) -> Callable[[Aff[A]], Aff[A]]:
     """
         The catcher that returns the effect must be SYNCHRONOUS.
-        Asynchrony is assumed inside the effect
-
-        :raises MonadError: coroutine functions are not allowed
+        Asynchrony is assumed inside the effect  
     """
-    panic_on_coroutine(catcher, Aff.__name__, 'catch_bind')
 
     def catch_bind_inner(effect: Aff[A]) -> Aff[A]:
         return _CatchAsync(effect, exc_type, catcher)
@@ -77,6 +71,17 @@ def ensure_soft(finalizer: Aff[None]) -> Callable[[Aff[A]], Aff[A]]:
         return _EnsureAsync(effect, finalizer)
 
     return ensure_soft_inner
+
+
+def bracket(        
+        use: Callable[[A], Aff[B]], 
+        release: Callable[[A], Aff[None]]
+) -> Callable[[Aff[A]], Aff[B]]:
+    
+    def bracket_inner(acquire: Aff[A]) -> Aff[B]:
+        return _BracketAsync(acquire, use, release)
+    
+    return bracket_inner
 
 
 def ap(effect: Aff[A]) -> Callable[[Aff[Callable[[A], B]]], Aff[B]]:

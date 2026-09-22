@@ -993,6 +993,255 @@ class TestEffectSync(unittest.TestCase):
         self.assertIsInstance(res, Fail)  # type: ignore # noqa
         self.assertEqual(log, ["a", "b"])
 
+    def test_bracket_normal(self):
+        def push(kit: list[int]):
+            kit.append(1)
+            return kit
+
+        def finalize(kit: list[int]):
+            return ef.delay(lambda: kit.append(2))
+
+        eff = ef_dir.bracket(ef.delay(lambda: []), lambda lst: ef.delay(lambda: push(lst)), finalize)
+        res = run(eff)
+        self.assertEqual(res, [1, 2])
+
+    def test_bracket_release_is_not_taken(self):
+        eff = ef_dir.fmap(
+            ef_dir.bracket(
+                acquire=ef.delay(lambda: 0),
+                use=lambda v: ef.pure(v + 1),
+                release=lambda v: ef.pure(v * 10),  # type: ignore # noqa
+            ),
+            lambda v: v + 1,
+        )
+        res = run(eff)
+        self.assertEqual(res, 2)
+
+    def test_bracket_use_raises(self):
+        def push(kit: list[int]):
+            if len(kit) == 0:
+                raise TypeError("error")
+            return kit
+    
+        def finalize(kit: list[int]):
+            return ef.delay(lambda: kit.append(1))
+    
+        eff = ef_dir.bracket(ef.delay(lambda: []), lambda lst: ef.delay(lambda: push(lst)), finalize)
+        with self.assertRaises(TypeError):
+            res = run(eff)
+            self.assertEqual(res, [1])
+
+    def test_bracket_acquire_raises(self):
+        def raiser(num: int):
+            if num == 0:
+                raise TypeError("error")
+            return num
+
+        glb = 0
+
+        def finalize(): 
+            nonlocal glb           
+            glb += 1
+        
+        eff = flow(
+            ef.delay(lambda: raiser(0)),
+            ef_flow.bracket(lambda n: ef.delay(lambda: n + 1), lambda _: ef.delay(finalize))
+        )
+        with self.assertRaises(TypeError):
+            _ = run(eff)
+        self.assertEqual(glb, 0)
+
+    def test_bracket_error_during_construction(self):
+        def use(num: int):
+            d = 1 / num
+            return flow(
+                ef.delay(lambda: d),
+                ef_flow.fmap(lambda n: n + 1)
+            )
+
+        glb = 0
+        
+        def finalize(): 
+            nonlocal glb           
+            glb += 1
+
+        eff1 = flow(
+            ef.delay(lambda: 0),
+            ef_flow.bracket(            
+                use,
+                lambda _: ef.delay(finalize)
+            )
+        )
+        eff2 = flow(
+            ef.delay(lambda: 0),
+            ef_flow.bind(lambda n: flow(
+                use(n),
+                ef_flow.ensure_soft(ef.delay(finalize))
+            ))
+        )
+        with self.assertRaises(ZeroDivisionError):
+            _ = run(eff1)
+        self.assertEqual(glb, 1)
+        with self.assertRaises(ZeroDivisionError):
+            _ = run(eff2)
+        self.assertEqual(glb, 1)
+
+    def test_trans_bracket_normal(self):
+        def push(kit: list[int]):
+            kit.append(1)
+            return success(kit)
+        
+        def finalize(kit: list[int]):
+            return ef.delay(lambda: kit.append(2))
+        
+        eff = trans_dir.bracket(ef.delay(lambda: success([])), lambda lst: ef.delay(lambda: push(lst)), finalize)
+        res = run(eff)
+        self.assertEqual(res, Success([1, 2]))  
+
+    def test_trans_bracket_use_fail(self):
+        def push(kit: list[int]):            
+            return fail(kit)
+            
+        def finalize(kit: list[int]):
+            return ef.delay(lambda: kit.append(1))
+            
+        eff = trans_dir.bracket(ef.delay(lambda: success([])), lambda lst: ef.delay(lambda: push(lst)), finalize)
+        res = run(eff)
+        self.assertEqual(res, Fail([1])) 
+
+    def test_trans_bracket_acquire_fail(self):
+        def push(kit: list[int]):
+            kit.append(1)
+            return success(kit)
+            
+        def finalize(kit: list[int]):
+            return ef.delay(lambda: kit.append(2))
+            
+        eff = trans_dir.bracket(ef.delay(lambda: fail([])), lambda lst: ef.delay(lambda: push(lst)), finalize)
+        res = run(eff)
+        self.assertEqual(res, Fail([]))   
+
+    def test_bracket_release_with_errors(self):
+        def raiser(a: int):
+            if a < 0:
+                raise TypeError("test raise")
+            return a
+
+        def additional_raiser(a: int):
+            if a < 0:
+                raise ValueError("test ensure raise")
+            return None        
+
+        eff = ef_dir.bracket(
+            ef.delay(lambda: -10),
+            lambda n: ef.pure(raiser(n)),
+            lambda n: ef.delay(lambda: additional_raiser(n)),            
+        )
+        try:
+            _ = run(eff)            
+        except ValueError as err:            
+            self.assertIsInstance(err.__context__, TypeError)   
+
+
+    def test_bracket_runs_in_strict_order_once_per_execution(self):
+        events: list[str] = []
+        counters = {
+            "acquire": 0,
+            "use": 0,
+            "release": 0,
+        }
+
+        def acquire():            
+            events.append("acquire")
+            counters["acquire"] += 1
+            token = f"resource-{counters['acquire']}"
+            events.append(f"acquire:{token}")
+            return token
+
+        def use(token: str):
+            events.append(f"use:{token}")
+            counters["use"] += 1
+            return ef.pure(f"used-{token}")
+
+        def release(token: str):
+            events.append(f"release:{token}")
+            counters["release"] += 1
+            return ef.pure(None)
+
+        eff = ef_dir.bracket(ef.delay(acquire), use, release)       
+               
+        result1 = run(eff)
+        self.assertEqual(result1, "used-resource-1")
+        self.assertEqual(
+            events,
+            [
+                "acquire",
+                "acquire:resource-1",
+                "use:resource-1",
+                "release:resource-1",
+            ],
+        )
+        self.assertEqual(
+            counters,
+            {"acquire": 1, "use": 1, "release": 1},
+        )
+        
+        result2 = run(eff)
+        self.assertEqual(result2, "used-resource-2")
+        self.assertEqual(
+            events,
+            [
+                "acquire",
+                "acquire:resource-1",
+                "use:resource-1",
+                "release:resource-1",
+                "acquire",
+                "acquire:resource-2",
+                "use:resource-2",
+                "release:resource-2",
+            ],
+        )
+        self.assertEqual(
+            counters,
+            {"acquire": 2, "use": 2, "release": 2},
+        )
+
+    def test_bracket_calls_release_when_use_fails_and_release_error_wins(self):
+        events: list[str] = []
+
+        class UseError(Exception):
+            pass
+
+        class ReleaseError(Exception):
+            pass
+
+        def acquire():
+            events.append("acquire")
+            return "res"
+
+        def use(res: str):
+            events.append(f"use:{res}")
+            raise UseError("use failed")
+
+        def release(res: str):
+            events.append(f"release:{res}")
+            raise ReleaseError("release failed")
+
+        eff = flow(
+            ef.delay(acquire),
+            ef_flow.bracket(            
+                lambda r: ef.delay(lambda: use(r)),
+                lambda r: ef.delay(lambda: release(r)),
+            )
+        )
+
+        with self.assertRaises(ReleaseError) as ctx:
+            run(eff)
+
+        self.assertEqual(str(ctx.exception), "release failed")
+        self.assertEqual(events, ["acquire", "use:res", "release:res"])
+     
+    
 
 if __name__ == '__main__':
     unittest.main()

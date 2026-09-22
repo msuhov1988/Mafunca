@@ -1215,6 +1215,353 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(res, Fail)  # type: ignore # noqa
         self.assertEqual(log, ["a", "b"])
 
+    async def test_bracket_normal(self):
+        async def get() -> list[int]:
+            return []
+        
+        async def push(kit: list[int]):
+            kit.append(1)
+            return kit
+
+        def finalize(kit: list[int]):
+            async def finalize_inner():
+                kit.append(2) 
+            return af.delay(finalize_inner)
+
+        eff = af_dir.bracket(af.delay(get), lambda lst: af.delay(lambda: push(lst)), finalize)
+        res = await run_async(eff)
+        self.assertEqual(res, [1, 2])
+
+    async def test_bracket_release_is_not_taken(self):
+        async def get():
+            return 0
+        
+        eff = af_dir.fmap(
+            af_dir.bracket(
+                acquire=af.delay(get),
+                use=lambda v: af.pure(v + 1),
+                release=lambda v: af.pure(v * 10),  # type: ignore # noqa
+            ),
+            lambda v: v + 1,
+        )
+        res = await run_async(eff)
+        self.assertEqual(res, 2)
+
+    async def test_bracket_use_raises(self):
+        async def get() -> list[int]:
+            return []
+        
+        async def push(kit: list[int]):
+            if len(kit) == 0:
+                raise TypeError("error")
+            return kit
+    
+        def finalize(kit: list[int]):
+            async def finalize_inner():
+                kit.append(1) 
+            return af.delay(finalize_inner)
+    
+        eff = af_dir.bracket(af.delay(get), lambda lst: af.delay(lambda: push(lst)), finalize)
+        with self.assertRaises(TypeError):
+            res = await run_async(eff)
+            self.assertEqual(res, [1])
+
+    async def test_bracket_acquire_raises(self):
+        async def raiser(num: int):
+            if num == 0:
+                raise TypeError("error")
+            return num
+
+        glb = 0
+
+        def finalize(): 
+            nonlocal glb           
+            glb += 1
+        
+        eff = flow(
+            af.delay(lambda: raiser(0)),
+            af_flow.bracket(lambda n: af.pure(n + 1), lambda _: af.pure(finalize()))
+        )
+        with self.assertRaises(TypeError):
+            _ = await run_async(eff)
+        self.assertEqual(glb, 0)
+
+    async def test_bracket_error_during_construction(self):
+        def use(num: int):
+            d = 1 / num
+            return flow(
+                af.pure(d),
+                af_flow.fmap(lambda n: n + 1)
+            )
+
+        glb = 0
+        
+        def finalize(): 
+            nonlocal glb           
+            glb += 1
+
+        eff1 = flow(
+            af.pure(0),
+            af_flow.bracket(            
+                use,
+                lambda _: af.pure(finalize())
+            )
+        )
+        eff2 = flow(
+            af.pure(0),
+            af_flow.bind(lambda n: flow(
+                use(n),
+                af_flow.ensure_soft(af.pure(finalize()))
+            ))
+        )
+        with self.assertRaises(ZeroDivisionError):
+            _ = await run_async(eff1)
+        self.assertEqual(glb, 1)
+        with self.assertRaises(ZeroDivisionError):
+            _ = await run_async(eff2)
+        self.assertEqual(glb, 1)
+
+    async def test_trans_bracket_normal(self):
+        async def get():
+            return success([])
+        
+        async def push(kit: list[int]):
+            kit.append(1)
+            return success(kit)
+        
+        def finalize(kit: list[int]):
+            return af.pure(kit.append(2))
+        
+        eff = trans_dir.bracket(af.delay(get), lambda lst: af.delay(lambda: push(lst)), finalize)
+        res = await run_async(eff)
+        self.assertEqual(res, Success([1, 2]))  
+
+    async def test_trans_bracket_use_fail(self):
+        async def get():
+            return success([])
+        
+        async def push(kit: list[int]):            
+            return fail(kit)
+            
+        def finalize(kit: list[int]):
+            return af.pure(kit.append(1))
+            
+        eff = trans_dir.bracket(af.delay(get), lambda lst: af.delay(lambda: push(lst)), finalize)
+        res = await run_async(eff)
+        self.assertEqual(res, Fail([1])) 
+
+    async def test_trans_bracket_acquire_fail(self):
+        async def get():
+            return fail([])
+        
+        async def push(kit: list[int]):
+            kit.append(1)
+            return success(kit)
+            
+        def finalize(kit: list[int]):
+            return af.pure(kit.append(2))
+            
+        eff = trans_dir.bracket(af.delay(get), lambda lst: af.delay(lambda: push(lst)), finalize)
+        res = await run_async(eff)
+        self.assertEqual(res, Fail([]))   
+
+    async def test_bracket_release_with_errors(self):
+        def raiser(a: int):
+            if a < 0:
+                raise TypeError("test raise")
+            return a
+
+        async def additional_raiser(a: int):
+            if a < 0:
+                raise ValueError("test ensure raise")
+            return None        
+
+        eff = af_dir.bracket(
+            af.pure(-10),
+            lambda n: af.pure(raiser(n)),
+            lambda n: af.delay(lambda: additional_raiser(n)),            
+        )
+        try:
+            _ = await run_async(eff)            
+        except ValueError as err:            
+            self.assertIsInstance(err.__context__, TypeError)   
+
+
+    async def test_bracket_runs_in_strict_order_once_per_execution(self):
+        events: list[str] = []
+        counters = {
+            "acquire": 0,
+            "use": 0,
+            "release": 0,
+        }
+
+        async def acquire():            
+            events.append("acquire")
+            counters["acquire"] += 1
+            token = f"resource-{counters['acquire']}"
+            events.append(f"acquire:{token}")
+            return token
+
+        def use(token: str):
+            events.append(f"use:{token}")
+            counters["use"] += 1
+            return af.pure(f"used-{token}")
+
+        def release(token: str):
+            events.append(f"release:{token}")
+            counters["release"] += 1
+            return af.pure(None)
+
+        eff = af_dir.bracket(af.delay(acquire), use, release)       
+                
+        result1 = await run_async(eff)
+        self.assertEqual(result1, "used-resource-1")
+        self.assertEqual(
+            events,
+            [
+                "acquire",
+                "acquire:resource-1",
+                "use:resource-1",
+                "release:resource-1",
+            ],
+        )
+        self.assertEqual(
+            counters,
+            {"acquire": 1, "use": 1, "release": 1},
+        )
+        
+        result2 = await run_async(eff)
+        self.assertEqual(result2, "used-resource-2")
+        self.assertEqual(
+            events,
+            [
+                "acquire",
+                "acquire:resource-1",
+                "use:resource-1",
+                "release:resource-1",
+                "acquire",
+                "acquire:resource-2",
+                "use:resource-2",
+                "release:resource-2",
+            ],
+        )
+        self.assertEqual(
+            counters,
+            {"acquire": 2, "use": 2, "release": 2},
+        )
+
+    async def test_bracket_calls_release_when_use_fails_and_release_error_wins(self):
+        events: list[str] = []
+
+        class UseError(Exception):
+            pass
+
+        class ReleaseError(Exception):
+            pass
+
+        async def acquire():
+            events.append("acquire")
+            return "res"
+
+        async def use(res: str):
+            events.append(f"use:{res}")
+            raise UseError("use failed")
+
+        async def release(res: str):
+            events.append(f"release:{res}")
+            raise ReleaseError("release failed")
+
+        eff = flow(
+            af.delay(acquire),
+            af_flow.bracket(            
+                lambda r: af.delay(lambda: use(r)),
+                lambda r: af.delay(lambda: release(r)),
+            )
+        )
+
+        with self.assertRaises(ReleaseError) as ctx:
+            await run_async(eff)
+
+        self.assertEqual(str(ctx.exception), "release failed")
+        self.assertEqual(events, ["acquire", "use:res", "release:res"])
+
+    async def test_bracket_cancelled_error_not_replaced(self):
+        async def get():
+            return -1
+
+        async def cancelled(a: int):
+            if a < 0:
+                raise asyncio.CancelledError()
+            return a
+
+        async def error_raiser(a: int):
+            if a < 0:
+                raise TypeError("Error")            
+
+        eff = af_dir.bracket(
+            af.delay(get),
+            lambda n: af.delay(lambda: cancelled(n)),
+            lambda n: af.delay(lambda: error_raiser(n))
+        )
+        with self.assertRaises(asyncio.CancelledError):
+            await run_async(eff)
+        with self.assertRaises(asyncio.CancelledError):
+            await run_safe_async(eff)
+
+    async def test_bracket_cancelled_error_not_replaced_during_construction(self):
+            async def get():
+                return -1
+    
+            async def cancelled(a: int):
+                if a < 0:
+                    raise asyncio.CancelledError()
+                return a
+    
+            def finalizer(a: int):
+
+                async def finalizer_inner():
+                    pass
+
+                _ = a / 0
+                return af.delay(finalizer_inner)          
+    
+            eff = af_dir.bracket(
+                af.delay(get),
+                lambda n: af.delay(lambda: cancelled(n)),
+                finalizer,
+            )
+            with self.assertRaises(asyncio.CancelledError):
+                await run_async(eff)
+            with self.assertRaises(asyncio.CancelledError):
+                await run_safe_async(eff)
+
+    async def test_bracket_release_runs_on_task_cancell(self):
+        async def get():           
+            return 0
+
+        async def plus(val: int):
+            await asyncio.sleep(1)
+            return val + 1
+
+        glb = 0
+        
+        async def increase():
+            nonlocal glb
+            glb += 1
+        
+        eff = flow(
+            af.delay(get),
+            af_flow.bracket(lambda n: af.delay(lambda: plus(n)), lambda _: af.delay(increase))
+        )
+        task = asyncio.create_task(run_async(eff))
+        with self.assertRaises(asyncio.CancelledError):    
+            await asyncio.sleep(0)
+            task.cancel()
+            await task                
+        self.assertEqual(glb, 1)
+        self.assertTrue(task.cancelled())
+        
+
 
 if __name__ == '__main__':
     unittest.main()

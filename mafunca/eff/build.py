@@ -19,7 +19,7 @@ A_co = TypeVar("A_co", covariant=True)
 A = TypeVar("A")
 B = TypeVar("B")
 C = TypeVar("C")
-Exc = TypeVar("Exc", bound=Exception)
+Exc = TypeVar("Exc", bound=BaseException)
 
 
 class Eff(Generic[A_co]):
@@ -146,11 +146,3 @@ def retry(
         retry_on_exceptions=retry_on_exceptions,
         step_name=step_name
     )
-
-
-def bracket(
-        acquire: Eff[A], 
-        use: Callable[[A], Eff[B]], 
-        release: Callable[[A], Eff[None]]
-) -> Eff[B]:
-    return _Bracket(acquire, use, release)

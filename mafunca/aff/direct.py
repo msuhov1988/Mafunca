@@ -2,13 +2,13 @@ from collections.abc import Callable
 from typing import TypeVar
 
 from mafunca.aff.build import Aff
-from mafunca.aff.build import _PureAsync, _BindAsync, _CatchAsync, _EnsureAsync  # type: ignore # noqa
+from mafunca.aff.build import _PureAsync, _BindAsync, _CatchAsync, _EnsureAsync, _BracketAsync  # type: ignore # noqa
 from mafunca._lazy_support import panic_on_coroutine
 
 
 A = TypeVar("A")
 B = TypeVar("B")
-Exc = TypeVar("Exc", bound=Exception)
+Exc = TypeVar("Exc", bound=BaseException)
 E = TypeVar("E")
 
 
@@ -26,10 +26,7 @@ def bind(effect: Aff[A], fn: Callable[[A], Aff[B]]) -> Aff[B]:
     """
         The function that returns the effect must be SYNCHRONOUS.
         Asynchrony is assumed inside the effect
-
-        :raises MonadError: coroutine functions are not allowed
     """
-    panic_on_coroutine(fn, Aff.__name__, 'bind')
     return _BindAsync(effect, fn)
 
 
@@ -47,15 +44,20 @@ def catch_bind(effect: Aff[A], exc_type: type[Exc], catcher: Callable[[Exc], Aff
     """
         The catcher that returns the effect must be SYNCHRONOUS.
         Asynchrony is assumed inside the effect
-
-        :raises MonadError: coroutine functions are not allowed
-    """
-    panic_on_coroutine(catcher, Aff.__name__, 'catch_bind')
+    """   
     return _CatchAsync(effect, exc_type, catcher)
 
 
 def ensure_soft(effect: Aff[A], finalizer: Aff[None]) -> Aff[A]:    
     return _EnsureAsync(effect, finalizer)
+
+
+def bracket(
+        acquire: Aff[A], 
+        use: Callable[[A], Aff[B]], 
+        release: Callable[[A], Aff[None]]
+) -> Aff[B]:
+    return _BracketAsync(acquire, use, release)
 
 
 def ap(effect: Aff[A], fn: Aff[Callable[[A], B]]) -> Aff[B]:

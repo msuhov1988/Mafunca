@@ -19,7 +19,8 @@ __all__ = [
 A_co = TypeVar("A_co", covariant=True)
 A = TypeVar("A")
 B = TypeVar("B")
-Exc = TypeVar("Exc", bound=Exception)
+C = TypeVar("C")
+Exc = TypeVar("Exc", bound=BaseException)
 
 
 class Aff(Generic[A_co]):
@@ -74,7 +75,7 @@ class _RetryAsync(Generic[A], Aff[A]):
             wait_seconds_on_attempt: int | float | None,
             pause_seconds_between: Callable[[int], int | float],
             retry_on_result: Callable[[A], bool],
-            retry_on_exceptions: tuple[type[Exception | TimeoutError], ...],
+            retry_on_exceptions: tuple[type[Exception], ...],
             step_name: str
     ):
         if total_attempts < 1:
@@ -113,6 +114,13 @@ class _EnsureAsync(Generic[A, B], Aff[A]):
     finalizer: Aff[B]
 
 
+@dataclass(frozen=True, slots=True, repr=True)
+class _BracketAsync(Generic[A, B, C], Aff[B]):
+    acquire: Aff[A]
+    use: Callable[[A], Aff[B]]
+    release: Callable[[A], Aff[C]]
+
+
 def pure(value: A) -> Aff[A]:
     """Wraps a ready-made value"""
     return _PureAsync(value)
@@ -147,7 +155,7 @@ def retry(
         wait_seconds_on_attempt: int | float | None = None,
         pause_seconds_between: Callable[[int], int | float] = lambda _: 0,
         retry_on_result: Callable[[A], bool] = lambda _: False,
-        retry_on_exceptions: tuple[type[Exception | TimeoutError], ...] = (),
+        retry_on_exceptions: tuple[type[Exception], ...] = (),
         step_name: str = '',
 ) -> Aff[A]:
     """

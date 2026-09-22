@@ -5,7 +5,7 @@ from mafunca._lazy_support import panic_on_coroutine
 from mafunca.result.build import Result, Success, Fail
 import mafunca.result.direct as rd
 from mafunca.aff.build import Aff
-from mafunca.aff.build import _PureAsync, _BindAsync, _CatchAsync, _EnsureAsync  # type: ignore # noqa
+from mafunca.aff.build import _PureAsync, _BindAsync, _CatchAsync, _EnsureAsync, _BracketAsync  # type: ignore # noqa
 from mafunca.aff_trans.build import AffResult
 import mafunca.aff_trans.direct as tad
 
@@ -14,7 +14,7 @@ A = TypeVar("A", covariant=True)
 E = TypeVar("E", covariant=True)
 B = TypeVar("B")
 Enew = TypeVar('Enew')
-Exc = TypeVar("Exc", bound=Exception)
+Exc = TypeVar("Exc", bound=BaseException)
 
 
 def fmap(fn: Callable[[A], B]) -> Callable[[AffResult[A, E]], AffResult[B, E]]:
@@ -48,10 +48,7 @@ def fmap_error(fn: Callable[[E], Enew]) -> Callable[[AffResult[A, E]], AffResult
 def fmap_result(fn: Callable[[A], Result[B, E]]) -> Callable[[AffResult[A, E]], AffResult[B, E]]:
     """
         Only for SYNCHRONOUS functions - pure calculation
-
-        :raises MonadError: coroutine functions are not allowed
-    """
-    panic_on_coroutine(fn, 'AffResult', 'fmap_result')
+    """    
 
     def fmap_result_inner(effect: AffResult[A, E]) -> AffResult[B, E]:
         return _BindAsync(effect, lambda res: _PureAsync(rd.bind(res, fn)))
@@ -62,11 +59,8 @@ def fmap_result(fn: Callable[[A], Result[B, E]]) -> Callable[[AffResult[A, E]], 
 def bind(fn: Callable[[A], AffResult[B, E]]) -> Callable[[AffResult[A, E]], AffResult[B, E]]:
     """
         The function that returns the effect must be SYNCHRONOUS.
-        Asynchrony is assumed inside the effect
-
-        :raises MonadError: coroutine functions are not allowed
+        Asynchrony is assumed inside the effect    
     """
-    panic_on_coroutine(fn, 'AffResult', 'bind')
 
     def bind_inner(effect: AffResult[A, E]) -> AffResult[B, E]:
         def continuation(arg: Result[A, E]) -> Aff[Result[B, E]]:
@@ -98,11 +92,8 @@ def catch_fmap_result(
         catcher: Callable[[Exc], Result[A, E]]
     ) -> Callable[[AffResult[A, E]], AffResult[A, E]]:
     """
-        Only for SYNCHRONOUS catchers - pure calculation
-
-        :raises MonadError: coroutine functions are not allowed
-    """
-    panic_on_coroutine(catcher, 'AffResult', 'catch_fmap_result')
+        Only for SYNCHRONOUS catchers - pure calculation   
+    """ 
 
     def catch_fmap_result_inner(effect: AffResult[A, E]) -> AffResult[A, E]:
         return _CatchAsync(effect, exc_type, lambda exc: _PureAsync(catcher(exc)))
@@ -116,11 +107,8 @@ def catch_bind(
     ) -> Callable[[AffResult[A, E]], AffResult[A, E]]:
     """
         The catcher that returns the effect must be SYNCHRONOUS.
-        Asynchrony is assumed inside the effect
-
-        :raises MonadError: coroutine functions are not allowed
-    """
-    panic_on_coroutine(catcher, 'AffResult', 'catch_bind')
+        Asynchrony is assumed inside the effect   
+    """   
 
     def catch_bind_inner(effect: AffResult[A, E]) -> AffResult[A, E]:
         return _CatchAsync(effect, exc_type, lambda exc: catcher(exc))
@@ -134,6 +122,26 @@ def ensure_soft(finalizer: Aff[None] | AffResult[None, Never]) -> Callable[[AffR
         return _EnsureAsync(effect, finalizer)
 
     return ensure_soft_inner
+
+
+def bracket(         
+        use: Callable[[A], AffResult[B, E]], 
+        release: Callable[[A], Aff[None] | AffResult[None, Never]]
+) -> Callable[[AffResult[A, E]], AffResult[B, E]]:
+
+    def bracket_inner(acquire: AffResult[A, E]) -> AffResult[B, E]:
+
+        def use_continuation(arg: Result[A, E]) -> AffResult[B, E]:
+            res = rd.fmap(arg, use)
+            return rd.fold(res, on_success=lambda s: s, on_fail=lambda e: _PureAsync(Fail(e)))
+
+        def release_continuation(arg: Result[A, E]) -> Aff[None] | AffResult[None, E]:
+            res = rd.fmap(arg, release)
+            return rd.fold(res, on_success=lambda s: s, on_fail=lambda e: _PureAsync(Fail(e)))
+        
+        return _BracketAsync(acquire, use_continuation, release_continuation,)
+
+    return bracket_inner
 
 
 def ap(effect: AffResult[A, E]) -> Callable[[AffResult[Callable[[A], B], E]], AffResult[B, E]]:
