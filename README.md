@@ -868,7 +868,7 @@ Other remarks:
 
 
 
-### Effect 
+### Effect examples
 An example of the difference between `bracket` and `ensure_soft`:
 ```python
 from mafunca.eff import Eff, delay
