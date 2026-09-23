@@ -887,7 +887,7 @@ def bad_step(source: list[float]) -> Eff[list[float]]:
 
 finalized: list[str] = []
 
-def final(_: list[str]) -> Eff[None]:
+def final(_: list[float]) -> Eff[None]:
 
     def inner():
         finalized.append("ensure_soft")
