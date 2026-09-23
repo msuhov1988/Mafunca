@@ -602,10 +602,18 @@ The effects implemented here have a number of features:
 - The ability to configure retries for a specific node in the chain
 - The ability to asynchronously perform blocking IO in a separate thread (for async effects only)
 - Built‑in exception handlers
-- Built-in finalizers. Let’s call them “soft”  
-  The only difference from a regular `finally` block is that a soft finalizer is not guaranteed to run
+- Two types of built-in finalizers.
+  - `enure_soft` is an independent node in the chain. It is called soft. Why? Explained in the general remarks and examples.
+  - `bracket` is a compositional pattern that provides stricter guarantees compared to `ensure_soft`.
+    The difference is explained in the examples.  
+  
+  The only difference from a regular `finally` block is that these finalizers is not guaranteed to run
   if execution is interrupted by interpreter-level exceptions, most notably `KeyboardInterrupt`, which may be raised
-  at effectively arbitrary points during Python execution.
+  at effectively arbitrary points during Python execution. And even then, only if the underlying infrastructure does not implement 
+  a soft shutdown scenario for such cases.  
+  For example, asyncio implements a soft shutdown via task cancellation when Ctrl + C is pressed for the first time.  
+  
+  This also applies to the built‑in exception handlers.
   
 
 Now let's move on to considering types and constructions.  
@@ -802,6 +810,7 @@ Therefore, only a brief table listing them is provided here.
 | `catch_fmap_result` | direct, flow |     | +         |     | +         |
 | `catch_bind`        | direct, flow | +   | +         | +   | +         |
 | `ensure_soft`       | direct, flow | +   | +         | +   | +         |
+| `bracket`           | direct, flow | +   | +         | +   | +         |
 | `ap`                | direct, flow | +   | +         | +   | +         |
 | `lift2`             | lift         | +   | +         | +   | +         |
 | `lift3`             | lift         | +   | +         | +   | +         |
@@ -809,13 +818,15 @@ Therefore, only a brief table listing them is provided here.
 
 ### General remarks
 Since the effects here have built‑in error handlers and finalizers, it’s worth mentioning some of their features:
-- As mentioned above, the execution of `ensure_soft` is not guaranteed for interruptions like `KeyboardInterrupt`
-- The error in `ensure_soft` works similarly to that in `finally` — it replaces the current error (if any) and adds it to its own context.  
-  But if the current error is `asyncio.CancelledError`, then it is not replaced.  
-  Because the cancellation signal is considered to be of higher priority.
-- Exception handlers are configured to handle `Exception` subclasses.  
-  But this is a contract only at the level of type hints.  
-  Thus, if, despite the types, you configure the handling of exceptions that are not subclasses of `Exception`, they will actually be caught.
+- As mentioned above, the execution of `ensure_soft` and `bracket` is not guaranteed for interruptions like `KeyboardInterrupt`  
+  in the immediate shutdown mode.
+- The error in `ensure_soft` or in `release` effect inside `bracket` works similarly to that in `finally` — it replaces the current error (if any) and adds it to its own context.  
+  But if the current error is `asyncio.CancelledError`, then it is not replaced (in asynchronous effects).  
+  Because the cancellation signal is considered to be of higher priority.  
+- Exception handlers are configured to handle `BaseException` subclasses.  
+  However, don’t forget that not all of them are recommended to be intercepted.  
+  Especially `asyncio.CancelledError`.  
+  And, as mentioned above, the execution of these exception handlers is not guaranteed for interruptions like `KeyboardInterrupt`
 - Be careful with the scopes for the `catch_` and `ensure_soft` methods, for example:
 ```python
 from mafunca.eff import delay
@@ -840,6 +851,10 @@ effect = flow(
 - `ensure_soft(delay_logging)`
 
 While `catch_` and `ensure_soft` nodes inside `bind` are related to an internal effect and are limited to its scope.  
+If an error occurs during the effect construction stage, in the internal `flow` function, then the internal `ensure_soft`, naturally, will not be executed.  
+This is where the `bracket` differs: if `acquire` is successfully executed, then `release` is guaranteed to be executed, regardless of what happens during the `use` process.
+Details in the example.
+
 
 Other remarks:
 - Effect monads are stack-safe, so you can build chains of any length and nesting. 
@@ -853,9 +868,54 @@ Other remarks:
 
 
 
-### Effect examples
-The examples are "toy-like", but they reflect the essence
+### Effect 
+An example of the difference between `bracket` and `ensure_soft`:
+```python
+from mafunca.eff import Eff, delay
+from mafunca.eff.flow import bind, ensure_soft, bracket
+from mafunca.flow import flow
+from mafunca.effect_runners import run_safe
 
+def bad_step(source: list[float]) -> Eff[list[float]]:
+    a = 1 / 0  # the error will occur at the stage of building the effect
+
+    def inner():
+        source.append(a)
+        return source
+
+    return delay(inner)
+
+finalized: list[str] = []
+
+def final(_: list[str]) -> Eff[None]:
+
+    def inner():
+        finalized.append("ensure_soft")
+
+    return delay(inner)
+
+
+effect1 = flow(
+    delay(lambda: []),
+    bind(lambda src: flow(
+        bad_step(src),  # the error will occur at the stage of building the effect
+        ensure_soft(finalizer=final(src))
+    ))
+)
+result1 = run_safe(effect1)
+print(result1)    # Fail(error=ZeroDivisionError('division by zero'))
+print(finalized)  # []
+
+
+effect2 = flow(
+    delay(lambda: []),
+    bracket(bad_step, final)
+)
+result2 = run_safe(effect2)
+print(result2)    # Fail(error=ZeroDivisionError('division by zero'))
+print(finalized)  # ['ensure_soft']
+```
+"toy-like" retry example:
 ```python
 import asyncio
 
