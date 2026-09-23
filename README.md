@@ -857,7 +857,7 @@ Details in the example.
 
 
 Other remarks:
-- Effect monads are stack-safe, so you can build chains of any length and nesting. 
+- Effects are stack-safe, so you can build chains of any length and nesting. 
 - When the `retry` node runs out of attempts to retry based on exceptions or a predicate,
   exceptions `RetryByExceptionError` and `RetryByValueError` are thrown, respectively.
   You can always catch them with `catch_` methods and extract, for example,
