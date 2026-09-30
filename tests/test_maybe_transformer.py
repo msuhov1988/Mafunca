@@ -1,9 +1,10 @@
 import unittest
+from typing import Never
 
-from mafunca.result.build import Success, Fail, success as result_success, fail as result_fail
-from mafunca.maybe.build import Just, just as maybe_just, nothing as maybe_nothing
+from mafunca.result.build import Success, Fail, Result, success as result_success, fail as result_fail
+from mafunca.maybe.build import Just, Nothing, just as maybe_just, nothing as maybe_nothing
 from mafunca.result.direct import fmap as result_map
-from mafunca.maybe_trans.build import just, nothing, fail, lift_maybe, lift_result
+from mafunca.maybe_trans.build import just, nothing, fail, lift_maybe, lift_result, Step, do, Do
 from mafunca.maybe_trans.build import is_just, is_nothing, is_fail, from_null, from_try
 from mafunca.maybe_trans.direct import fmap, fmap_error, fmap_maybe, fmap_result, bind, fold, get_or_else, ap
 from mafunca.maybe_trans.lift import lift2, lift3, lift4, lift
@@ -320,6 +321,169 @@ class TestMaybeResultT(unittest.TestCase):
 
         res = lift(many, just(1), nothing(), fail(3), just(4), just(5))
         self.assertTrue(is_nothing(res))
+
+    def test_gen_ok(self):
+        @do
+        def add(a: int) -> Do[int, Never]:
+            num = yield from Step(just(1))
+            return num + a  
+
+        maybe = add(2)
+        self.assertIsInstance(maybe, Just) 
+        self.assertIsInstance(maybe.value if isinstance(maybe, Just) else None, Success) 
+        res = maybe.value if isinstance(maybe, Just) else result_fail(0)
+        value = res.value if isinstance(res, Success) else None
+        self.assertEqual(value, 3)
+
+    def test_gen_ok_wraps(self):
+        @do
+        def add(a: int) -> Do[Result[int, Never], Never]:
+            num = yield from Step(just(1))
+            return Success(num + a)
+    
+        mb = add(2)
+        self.assertIsInstance(mb, Just) 
+        res = mb.value if isinstance(mb, Just) else result_fail(0)
+        inner = res.value if isinstance(res, Success) else None
+        self.assertIsInstance(inner, Success)
+
+    def test_gen_ok_no_yield(self):
+        @do
+        def add(a: int) -> Do[int, Never]:
+            if a == 0:
+                return a
+            num = yield from Step(just(1))
+            return num + a 
+
+        mb = add(0)
+        self.assertIsInstance(mb, Just) 
+        res = mb.value if isinstance(mb, Just) else result_fail(100)
+        self.assertEqual(res.value if isinstance(res, Success) else 100, 0) 
+
+        mb = add(2)
+        self.assertIsInstance(res, Success) 
+        res = mb.value if isinstance(mb, Just) else result_fail(0)
+        self.assertIsInstance(res, Success)
+        self.assertEqual(res.value if isinstance(res, Success) else 0, 3) 
+
+    def test_gen_err_fail(self):
+        @do
+        def add(a: int) -> Do[int, str]:
+            if a < 0:
+                num = yield from Step(fail("negative"))
+            num = yield from Step(just(1))
+            return num + a
+
+        mb = add(-1)
+        self.assertIsInstance(mb, Just)
+        res = mb.value if isinstance(mb, Just) else result_success(0) 
+        self.assertEqual(res.error if isinstance(res, Fail) else None, "negative")  
+
+        mb = add(2)
+        self.assertIsInstance(mb, Just) 
+        res = mb.value if isinstance(mb, Just) else result_fail(0) 
+        self.assertIsInstance(res, Success)
+        self.assertEqual(res.value if isinstance(res, Success) else 0, 3) 
+
+    def test_gen_err_nothing(self):
+        @do
+        def add(a: int) -> Do[int, Never]:
+            if a < 0:
+                num = yield from Step(nothing())
+            num = yield from Step(just(1))
+            return num + a
+
+        mb = add(-1)
+        self.assertIsInstance(mb, Nothing)
+        
+        mb = add(2)
+        self.assertIsInstance(mb, Just) 
+        res = mb.value if isinstance(mb, Just) else result_fail(0)
+        self.assertIsInstance(res, Success)
+        self.assertEqual(res.value if isinstance(res, Success) else 0, 3) 
+
+    def test_gen_err_fail_first(self):
+        @do
+        def add(a: int) -> Do[int, int]:
+            num1 = yield from Step(fail(1))
+            num2 = yield from Step(fail(2))
+            return num1 + num2 + a
+    
+        mb = add(3)
+        self.assertIsInstance(mb, Just)
+        res = mb.value if isinstance(mb, Just) else result_success(0)  
+        self.assertEqual(res.error if isinstance(res, Fail) else None, 1) 
+
+    def test_gen_err_wrapped_fail(self):
+        @do
+        def add(a: int) -> Do[int, Result[Never, int]]:
+            num1 = yield from Step(fail(Fail(1)))           
+            return num1 + a
+        
+        mb = add(3)
+        self.assertIsInstance(mb, Just)
+        res = mb.value if isinstance(mb, Just) else result_success(0)  
+        self.assertIsInstance(res.error if isinstance(res, Fail) else None, Fail) 
+        unwrapped_one = res.error if isinstance(res, Fail) else None         
+        self.assertEqual(unwrapped_one.error if isinstance(unwrapped_one, Fail) else None, 1)
+
+    def test_gen_err_raise_stop_iteration(self):
+        @do
+        def add(a: int) -> Do[int, Never]:
+            if a < 0:
+                raise StopIteration(a)
+            num = yield from Step(just(1))
+            return num + a
+
+        with self.assertRaises(RuntimeError):
+            _ = add(-10)
+
+    def test_gen_chained_fail(self):
+        @do
+        def add(a: int) -> Do[int, str]:
+            if a < 0:
+                return (yield from Step(fail("negative")))
+            num = yield from Step(just(1))
+            return a + num
+
+        @do
+        def mul(m: int) -> Do[int, str]:
+            a = yield from Step(add(m))
+            return a * 2
+
+        mb = mul(-1)
+        self.assertIsInstance(mb, Just) 
+        res = mb.value if isinstance(mb, Just) else result_success(0)
+        self.assertIsInstance(res, Fail) 
+        self.assertEqual(res.error if isinstance(res, Fail) else None, "negative") 
+
+        mb = mul(2)
+        self.assertIsInstance(mb, Just) 
+        res = mb.value if isinstance(mb, Just) else result_fail(0)
+        self.assertIsInstance(res, Success)
+        self.assertEqual(res.value if isinstance(res, Success) else 0, 6)
+
+    def test_gen_chained_nothing(self):
+        @do
+        def add(a: int) -> Do[int, Never]:
+            if a < 0:
+                return (yield from Step(nothing()))
+            num = yield from Step(just(1))
+            return a + num
+
+        @do
+        def mul(m: int) -> Do[int, Never]:
+            a = yield from Step(add(m))
+            return a * 2
+
+        mb = mul(-1)
+        self.assertIsInstance(mb, Nothing)         
+
+        mb = mul(2)
+        self.assertIsInstance(mb, Just) 
+        res = mb.value if isinstance(mb, Just) else result_fail(0)
+        self.assertIsInstance(res, Success)
+        self.assertEqual(res.value if isinstance(res, Success) else 0, 6)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import inspect
-from collections.abc import Callable, Awaitable
-from typing import TypeVar, Generic
+from collections.abc import Callable, Awaitable, Generator
+from typing import TypeVar, Generic, ParamSpec, Any
 
 from mafunca.common.exceptions import ValidationError
 from mafunca._lazy_support import panic_on_coroutine
@@ -13,6 +13,11 @@ __all__ = [
     "delay",
     "delay_to_thread",
     "retry",
+    "Do",
+    "AffGenBased",
+    "Step",
+    "step",
+    "do",
 ]
 
 
@@ -21,18 +26,18 @@ A = TypeVar("A")
 B = TypeVar("B")
 C = TypeVar("C")
 Exc = TypeVar("Exc", bound=BaseException)
+Args = ParamSpec('Args')
 
 
-class Aff(Generic[A_co]):
-    __slots__ = ()
+class Aff(Generic[A_co]):   
     """
         A monad for ASYNCHRONOUS effects.
         Lazy: not executed until the corresponding executor is called.
     """
-    pass    
+    __slots__ = ()   
 
 
-@dataclass(frozen=True, slots=True, repr=True)
+@dataclass(frozen=True, slots=True)
 class _PureAsync(Generic[A], Aff[A]):
     value: A
 
@@ -52,7 +57,7 @@ class _DelayAsync(Generic[A], Aff[A]):
         self.wait_seconds = wait_seconds
 
 
-@dataclass(frozen=True, slots=True, repr=True)
+@dataclass(frozen=True, slots=True)
 class _DelayThreadAsync(Generic[A], Aff[A]):
     thunk: Callable[[], A]
 
@@ -95,26 +100,26 @@ class _RetryAsync(Generic[A], Aff[A]):
         self.step_name = step_name
 
 
-@dataclass(frozen=True, slots=True, repr=True)
+@dataclass(frozen=True, slots=True)
 class _BindAsync(Generic[A, B], Aff[B]):
     current: Aff[A]
     continuation: Callable[[A], Aff[B]]
 
 
-@dataclass(frozen=True, slots=True, repr=True)
+@dataclass(frozen=True, slots=True)
 class _CatchAsync(Generic[A, Exc], Aff[A]):
     current: Aff[A]
     exc_type: type[Exc]
     catcher: Callable[[Exc], Aff[A]]
 
 
-@dataclass(frozen=True, slots=True, repr=True)
+@dataclass(frozen=True, slots=True)
 class _EnsureAsync(Generic[A, B], Aff[A]):
     current: Aff[A]
     finalizer: Aff[B]
 
 
-@dataclass(frozen=True, slots=True, repr=True)
+@dataclass(frozen=True, slots=True)
 class _BracketAsync(Generic[A, B, C], Aff[B]):
     acquire: Aff[A]
     use: Callable[[A], Aff[B]]
@@ -180,3 +185,58 @@ def retry(
         retry_on_exceptions=retry_on_exceptions,
         step_name=step_name
     )
+
+
+# a shorter typealias containing all the essential details
+# because the types of intermediate results are derived from r = yield from Step(...)
+type Do[A] = Generator[Aff[Any], Any, A]
+
+
+@dataclass(frozen=True, slots=True)
+class AffGenBased(Generic[A]):
+    """
+        A monad for ASYNCHRONOUS effects, presented as a generator workflow
+    """
+    workflow: Callable[[], Do[A]]
+
+    def __iter__(self) -> Do[A]:
+        gen = None        
+        try:
+            gen = self.workflow()             
+            return (yield from gen)
+        finally:
+            if gen is not None:            
+                gen.close()
+
+
+@dataclass(frozen=True, slots=True)
+class Step(Generic[A]):
+    """
+        Represents a single computation step used with ``yield from`` in a ``@do`` block     
+    """
+    for_yield: Aff[A] | AffGenBased[A]
+
+    def __iter__(self) -> Generator[Aff[A], A, A]:
+        if isinstance(self.for_yield, Aff):       
+            return (yield self.for_yield) 
+        return (yield from self.for_yield) 
+
+
+def step(for_yield: Aff[A] | AffGenBased[A]) -> Step[A]:
+    """
+        Represents a single computation step used with ``yield from`` in a ``@do`` block     
+    """
+    return Step(for_yield)
+
+
+def do(workflow: Callable[Args, Do[A]]) -> Callable[Args, AffGenBased[A]]:
+    """
+        Decorates a generator function implementing an ``Aff`` computations.
+
+        The internal wrapper function does not perform any calculations; it returns an ``AffGenBased`` object
+    """ 
+
+    def do_inner(*args: Args.args, **kwargs: Args.kwargs) -> AffGenBased[A]:   
+        return AffGenBased(lambda: workflow(*args, **kwargs))
+
+    return do_inner

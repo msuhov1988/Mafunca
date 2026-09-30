@@ -1,8 +1,9 @@
 import inspect
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Never, TypeVar
 
 from mafunca.common.exceptions import MonadError
+from mafunca.result import Result
 
 
 def _extract_name(func: Callable[..., Any]) -> str:
@@ -24,3 +25,13 @@ def panic_on_coroutine(fn: Callable[..., Any], monad_name: str, method_name: str
             method=method_name,
             message=f"function '{_extract_name(fn)}' - async function can not be used"
         )
+
+
+E = TypeVar("E")
+
+
+class ShortCircuitedError(Exception):
+    """A signal indicating that the execution needs to be “short‑circuited.” Used in effect transformers."""
+    def __init__(self, fail: Result[Never, E]):
+        super().__init__()
+        self.fail = fail

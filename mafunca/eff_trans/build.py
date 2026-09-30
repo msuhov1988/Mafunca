@@ -1,7 +1,8 @@
-from collections.abc import Callable
-from typing import TypeVar, TypeAlias, Never
+from dataclasses import dataclass
+from collections.abc import Callable, Generator
+from typing import TypeVar, Generic, ParamSpec, Never, Any
 
-from mafunca._lazy_support import panic_on_coroutine
+from mafunca._lazy_support import panic_on_coroutine, ShortCircuitedError
 from mafunca.result.build import Result, Success, Fail
 from mafunca.eff.build import Eff
 from mafunca.eff.build import _Pure, _Delay, _Retry, _Bind, _Bracket  # type: ignore # noqa
@@ -15,6 +16,11 @@ __all__ = [
     "lift_effect",    
     "delay",
     "retry",
+    "Do",
+    "EffResultGenBased",
+    "Step",
+    "step",
+    "do",
 ]
 
 
@@ -23,12 +29,13 @@ E = TypeVar("E")
 Enew = TypeVar('Enew')
 
 
-EffResult: TypeAlias = Eff[Result[A, E]]
+type EffResult[A, E] = Eff[Result[A, E]]
 
 
 S = TypeVar("S")
 F = TypeVar("F")
 R = TypeVar("R")
+Args = ParamSpec('Args')
 
 
 def pure_success(value: S) -> EffResult[S, Never]:
@@ -92,3 +99,62 @@ def retry(
         retry_on_exceptions=retry_on_exceptions,
         step_name=step_name
     )
+
+
+# a shorter typealias containing all the essential details
+# because the types of intermediate results are derived from r = yield from Step(...)
+type Do[A, E] = Generator[EffResult[Any, E], Result[Any, E], A]
+
+
+@dataclass(frozen=True, slots=True)
+class EffResultGenBased(Generic[A, E]):
+    """
+        A monad over ``Result`` for SYNCHRONOUS ONLY effects, presented as a generator workflow
+    """
+    workflow: Callable[[], Do[A, E]]
+
+    def __iter__(self) -> Do[A, E]:
+        gen = None        
+        try:
+            gen = self.workflow()             
+            return (yield from gen)
+        finally:
+            if gen is not None:            
+                gen.close()
+
+
+@dataclass(frozen=True, slots=True)
+class Step(Generic[A, E]):
+    """
+        Represents a single computation step used with ``yield from`` in a ``@do`` block     
+    """
+    for_yield: EffResult[A, E] | EffResultGenBased[A, E]
+
+    def __iter__(self) -> Generator[EffResult[A, E], Result[A, E], A]:
+        if isinstance(self.for_yield, Eff):
+            result = yield self.for_yield
+            if isinstance(result, Success):
+                return result.value       
+            raise ShortCircuitedError(result)
+        
+        return (yield from self.for_yield) 
+
+
+def step(for_yield: EffResult[A, E] | EffResultGenBased[A, E]) -> Step[A, E]:
+    """
+        Represents a single computation step used with ``yield from`` in a ``@do`` block     
+    """
+    return Step(for_yield)
+
+
+def do(workflow: Callable[Args, Do[A, E]]) -> Callable[Args, EffResultGenBased[A, E]]:
+    """
+        Decorates a generator function implementing an ``EffResult`` computations.
+
+        The internal wrapper function does not perform any calculations; it returns an ``EffResultGenBased`` object
+    """ 
+
+    def do_inner(*args: Args.args, **kwargs: Args.kwargs) -> EffResultGenBased[A, E]:   
+        return EffResultGenBased(lambda: workflow(*args, **kwargs))
+
+    return do_inner

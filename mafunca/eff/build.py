@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import inspect
-from collections.abc import Callable
-from typing import TypeVar, Generic
+from collections.abc import Callable, Generator
+from typing import TypeVar, Generic, ParamSpec, Any
 
 from mafunca.common.exceptions import ValidationError
 from mafunca._lazy_support import panic_on_coroutine
@@ -12,6 +12,11 @@ __all__ = [
     "pure",
     "delay",
     "retry",
+    "Do",
+    "EffGenBased",
+    "Step",
+    "step",
+    "do",
 ]
 
 
@@ -20,23 +25,23 @@ A = TypeVar("A")
 B = TypeVar("B")
 C = TypeVar("C")
 Exc = TypeVar("Exc", bound=BaseException)
+Args = ParamSpec('Args')
 
 
-class Eff(Generic[A_co]):
-    __slots__ = ()
+class Eff(Generic[A_co]):    
     """
         A monad for SYNCHRONOUS ONLY effects.
         Lazy: not executed until the corresponding executor is called.
     """ 
-    pass   
+    __slots__ = ()   
 
 
-@dataclass(frozen=True, slots=True, repr=True)
+@dataclass(frozen=True, slots=True)
 class _Pure(Generic[A], Eff[A]):
     value: A
 
 
-@dataclass(frozen=True, slots=True, repr=True)
+@dataclass(frozen=True, slots=True)
 class _Delay(Generic[A], Eff[A]):
     thunk: Callable[[], A]
 
@@ -74,26 +79,26 @@ class _Retry(Generic[A], Eff[A]):
         self.step_name = step_name
 
 
-@dataclass(frozen=True, slots=True, repr=True)
+@dataclass(frozen=True, slots=True)
 class _Bind(Generic[A, B], Eff[B]):
     current: Eff[A]
     continuation: Callable[[A], Eff[B]]
 
 
-@dataclass(frozen=True, slots=True, repr=True)
+@dataclass(frozen=True, slots=True)
 class _Catch(Generic[A, Exc], Eff[A]):
     current: Eff[A]
     exc_type: type[Exc]
     catcher: Callable[[Exc], Eff[A]]
 
 
-@dataclass(frozen=True, slots=True, repr=True)
+@dataclass(frozen=True, slots=True)
 class _Ensure(Generic[A, B], Eff[A]):
     current: Eff[A]
     finalizer: Eff[B]
 
 
-@dataclass(frozen=True, slots=True, repr=True)
+@dataclass(frozen=True, slots=True)
 class _Bracket(Generic[A, B, C], Eff[B]):
     acquire: Eff[A]
     use: Callable[[A], Eff[B]]
@@ -146,3 +151,58 @@ def retry(
         retry_on_exceptions=retry_on_exceptions,
         step_name=step_name
     )
+
+
+# a shorter typealias containing all the essential details
+# because the types of intermediate results are derived from r = yield from Step(...)
+type Do[A] = Generator[Eff[Any], Any, A]
+
+
+@dataclass(frozen=True, slots=True)
+class EffGenBased(Generic[A]):
+    """
+        A monad for SYNCHRONOUS ONLY effects, presented as a generator workflow
+    """
+    workflow: Callable[[], Do[A]]
+
+    def __iter__(self) -> Do[A]:
+        gen = None        
+        try:
+            gen = self.workflow()             
+            return (yield from gen)
+        finally:
+            if gen is not None:            
+                gen.close()
+
+
+@dataclass(frozen=True, slots=True)
+class Step(Generic[A]):
+    """
+        Represents a single computation step used with ``yield from`` in a ``@do`` block     
+    """
+    for_yield: Eff[A] | EffGenBased[A]
+
+    def __iter__(self) -> Generator[Eff[A], A, A]:
+        if isinstance(self.for_yield, Eff):       
+            return (yield self.for_yield) 
+        return (yield from self.for_yield) 
+
+
+def step(for_yield: Eff[A] | EffGenBased[A]) -> Step[A]:
+    """
+        Represents a single computation step used with ``yield from`` in a ``@do`` block     
+    """
+    return Step(for_yield)
+
+
+def do(workflow: Callable[Args, Do[A]]) -> Callable[Args, EffGenBased[A]]:
+    """
+        Decorates a generator function implementing an ``Eff`` computations.
+
+        The internal wrapper function does not perform any calculations; it returns an ``EffGenBased`` object
+    """ 
+
+    def do_inner(*args: Args.args, **kwargs: Args.kwargs) -> EffGenBased[A]:   
+        return EffGenBased(lambda: workflow(*args, **kwargs))
+
+    return do_inner
