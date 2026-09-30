@@ -116,7 +116,7 @@ def retry(
 
 # a shorter typealias containing all the essential details
 # because the types of intermediate results are derived from r = yield from Step(...)
-type Do[A, E] = Generator[AffResult[Any, E], Result[Any, E], A]
+type Do[A, E] = Generator[AffResult[Any, E], Any, A]
 
 
 @dataclass(frozen=True, slots=True)

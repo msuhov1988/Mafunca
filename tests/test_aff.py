@@ -1562,6 +1562,5 @@ class TestEffectAsync(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(task.cancelled())
         
 
-
 if __name__ == '__main__':
     unittest.main()
