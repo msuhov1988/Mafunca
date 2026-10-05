@@ -56,6 +56,9 @@ class _DelayAsync(Generic[A], Aff[A]):
         self.thunk = thunk
         self.wait_seconds = wait_seconds
 
+    def __repr__(self):
+        return f"_DelayAsync(thunk={self.thunk}, wait_seconds={self.wait_seconds})"
+
 
 @dataclass(frozen=True, slots=True)
 class _DelayThreadAsync(Generic[A], Aff[A]):
@@ -98,6 +101,17 @@ class _RetryAsync(Generic[A], Aff[A]):
         self.retry_on_result = retry_on_result
         self.retry_on_exceptions = retry_on_exceptions
         self.step_name = step_name
+
+    def __repr__(self):
+        return (
+            f"_RetryAsync(thunk={self.thunk}, "
+            f"total_attempts={self.total_attempts}, "
+            f"wait_seconds_on_attempt={self.wait_seconds_on_attempt}, "
+            f"pause_seconds_between={self.pause_seconds_between}, "
+            f"retry_on_result={self.retry_on_result}, "
+            f"retry_on_exceptions={self.retry_on_exceptions}, "
+            f"step_name={self.step_name})"
+        )
 
 
 @dataclass(frozen=True, slots=True)

@@ -23,6 +23,7 @@
 - [Chaining functions](#chaining-functions)
 - [Multiple arguments](#multiple-arguments)
 - [Table of functions](#table-of-functions)
+- [Syntax based on generators](#syntax-based-on-generators)
 - [Remarks](#remarks)
 - [Example](#example)
 
@@ -36,6 +37,7 @@
 - [Constructors of effects](#constructors-of-effects)
 - [Functions table](#functions-table)
 - [General remarks](#general-remarks)
+- [Effects via generators](#effects-via-generators)
 - [Effect examples](#effect-examples)
 
 ### [Exceptions](#exceptions)
@@ -400,6 +402,48 @@ rn = lift(collect_n, *kit)  # Success(value=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
 | `lift3`       | lift         | +      | +     | +           | +           |
 | `lift4`       | lift         | +      | +     | +           | +           |
 | `lift`        | lift         | +      | +     | +           | +           |
+
+### Syntax based on generators
+This is an alternative syntax that is more similar to imperative code.  
+With this approach, it is possible to use only one basic module for each container.  
+For example, Result:
+```python
+from math import sqrt
+from mafunca.result import Result, success, fail, Step, step, do, Do
+
+def ensure_non_negative(num: int) -> Result[int, str]:
+    if num >= 0:
+        return success(num)
+    return fail("number is negative")
+
+def square_root(num: int) -> Result[float, str]:
+    return success(sqrt(num))
+
+@do
+def safe_action(num: int) -> Do[float, str]:
+    non_negative = yield from step(ensure_non_negative(num))  # step - just factory function that returns Step
+    root = yield from Step(square_root(non_negative))  # Step can also be used directly
+    return root * root
+
+r1 = safe_action(16)   # Success(value=16.0)
+r2 = safe_action(-16)  # Fail(error='number is negative')
+```
+Similar `Step`, `step`, `do`, `Do` are defined for each of the containers, including transformers.
+- What is `Step` for?  
+  Containers such as `Result` are union types.  
+  And therefore, something external is needed to maintain correct typing.  
+  Something that works with `Result[T, E]`, rather than directly with `Success` and `Fail`.
+- What is `Do` for?  
+  This is just a shortened type alias, for convenience.  
+  `type Do[R, E] = Generator[Result[Any, E], Any, R]`  
+  It captures all the essential details, eliminating the need to write the full type of `Generator`.
+  Why are some types specified as `Any`? Because intermediate types are inferred from strings like:  
+  `root = yield from Step(square_root(non_negative))`  
+  Only the types of the final result and errors remain important. 
+- What is `do` for?  
+  A decorator that accepts a generator function which returns `Do[T, E]`.  
+  When called, it returns `Result[T, E]`.
+    
 
 ### Example
 Let’s expand the humorous example with safe division:
@@ -866,7 +910,51 @@ Other remarks:
   These nodes are the initiators of the effect, while the rest are either pure computations or pure transitions to the next effects.
 - `delay_to_thread` does not have a timer because there is no reliable way to cancel a running thread.
 
+### Effects via generators
+The approach is generally similar to simple containers, like `Result`.  
+Each of the basic modules defines:
+```python
+from mafunca.eff import Step, step, do, Do
+#  type Do[A] = Generator[Eff[Any], Any, A]
+```
+```python
+from mafunca.eff_trans import Step, step, do, Do
+#  type Do[A, E] = Generator[EffResult[Any, E], Any, A]
+```
+```python
+from mafunca.aff import Step, step, do, Do
+#  type Do[A] = Generator[Aff[Any], Any, A]
+```
+```python
+from mafunca.aff_trans import Step, step, do, Do
+#  type Do[A, E] = Generator[AffResult[Any, E], Any, A]
+```
+The `Step` object is similarly used for expressions:  
+```python
+value = yield from Step(something that returns the effect)
+```
+The difference in the `do` decorator:
+- It does not perform a generator function but returns a special object.
+```python
+from mafunca.eff import EffGenBased
+from mafunca.eff_trans import EffResultGenBased
+from mafunca.aff import AffGenBased
+from mafunca.aff_trans import AffResultGenBased
+```
+- To run these objects, special runners are required:
+```python
+from mafunca.effect_runners_gen_based import run, run_safe, run_async, run_safe_async
+```
+- These special objects can themselves be used via `Step` and `yield from`.  
+  In this case, `yield from` is an analogue of `bind` for binding 
 
+And most importantly:  
+You can use not only primary nodes such as `delay` and `retry` here,  
+but also any effect chains composed of functional combinators.  
+
+Thus, the generator-based approach here is not an alternative, but a generalization of the classical one.
+
+It is also worth noting that here you can use the standard `try except finally` mechanism for error handling and resource management.
 
 ### Effect examples
 An example of the difference between `bracket` and `ensure_soft`:
@@ -952,6 +1040,47 @@ def example_retry() -> Aff[int]:
 async def main():
   eff = example_retry()
   res = await run_async(eff)  # 1  
+  return res
+
+asyncio.run(main())
+```
+A “toy” example of a retry in a generator‑based syntax:
+```python
+import asyncio
+
+from mafunca.aff import pure, retry, Step, do, Do, AffGenBased
+from mafunca.effect_runners_gen_based import run_async
+
+@do
+def example_retry() -> Do[int]:
+    glb = 0
+
+    def effect(value: int):
+
+        async def effect_inner():
+            nonlocal glb
+            glb += 1
+            if glb < 3:
+                raise TypeError("Example error")
+            return value
+
+        return effect_inner
+
+    v1 = yield from Step(pure(0))
+    v2 = v1 + 1
+    v3 = yield from Step(
+        retry(
+            effect(v2),
+            total_attempts=3,
+            retry_on_exceptions=(TypeError,)
+        )    
+    )
+    return v3
+    
+
+async def main():
+  eff: AffGenBased[int] = example_retry()
+  res = await run_async(eff)  # 1 
   return res
 
 asyncio.run(main())

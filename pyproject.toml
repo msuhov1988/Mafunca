@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mafunca"
-version = "0.9.6"
+version = "0.9.7"
 description = "Some useful things from the world of functional programming for python."
 readme = "pypi.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = { file = "LICENSE" }
 authors = [
     { name = "Maxim Sukhov", email = "msuhov1988@gmail.com" }
@@ -18,7 +18,6 @@ keywords = [
 classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",

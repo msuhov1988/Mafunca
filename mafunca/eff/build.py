@@ -78,6 +78,16 @@ class _Retry(Generic[A], Eff[A]):
         self.retry_on_exceptions = retry_on_exceptions
         self.step_name = step_name
 
+    def __repr__(self):
+        return (
+            f"_Retry(thunk={self.thunk}, "
+            f"total_attempts={self.total_attempts}, "            
+            f"pause_seconds_between={self.pause_seconds_between}, "
+            f"retry_on_result={self.retry_on_result}, "
+            f"retry_on_exceptions={self.retry_on_exceptions}, "
+            f"step_name={self.step_name})"
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class _Bind(Generic[A, B], Eff[B]):
