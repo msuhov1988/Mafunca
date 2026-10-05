@@ -945,7 +945,7 @@ from mafunca.aff_trans import AffResultGenBased
 ```python
 from mafunca.effect_runners_gen_based import run, run_safe, run_async, run_safe_async
 ```
-- These special objects can themselves be used via `Step` and `yield from`.  
+- These special objects can themselves be used via `yield from` and `Step`.  
   In this case, `yield from` is an analogue of `bind` for binding 
 
 And most importantly:  
