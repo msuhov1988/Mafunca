@@ -952,7 +952,12 @@ And most importantly:
 You can use not only primary nodes such as `delay` and `retry` here,  
 but also any effect chains composed of functional combinators.  
 
-Thus, the generator-based approach here is not an alternative, but a generalization of the classical one.
+Thus, the generator-based approach here is not an alternative, but a generalization of the classical one.  
+
+Why does `do` return not `Eff/Aff`, but separate types that require a separate runners?
+- As mentioned above, the generator-based approach is designed as a generalization, not as an alternative to the classical one.
+- When only primary nodes are used, the phase of building the continuations stack is eliminated, which can lead to a performance gain.  
+  Since generators inside types such as `EffGenBased` are executed directly by the corresponding runners.
 
 It is also worth noting that here you can use the standard `try except finally` mechanism for error handling and resource management.
 
