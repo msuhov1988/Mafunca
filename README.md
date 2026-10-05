@@ -956,8 +956,8 @@ Thus, the generator-based approach here is not an alternative, but a generalizat
 
 Why does `do` return not `Eff/Aff`, but separate types that require a separate runners?
 - As mentioned above, the generator-based approach is designed as a generalization, not as an alternative to the classical one.
-- When only primary nodes are used, the phase of building the continuations stack is eliminated, which can lead to a performance gain.  
-  Since generators inside types such as `EffGenBased` are executed directly by the corresponding runners.
+- When only primary nodes are used, the phase of building the continuations stack is eliminated, which can lead to a performance gain,  
+  since generators inside types such as `EffGenBased` are executed directly by the corresponding runners.
 
 It is also worth noting that here you can use the standard `try except finally` mechanism for error handling and resource management.
 
